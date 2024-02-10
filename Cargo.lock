@@ -84,21 +84,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "acbf1af155f9b9ef647e42cdc158db4b64a1b61f743629225fde6f3e0be2a7c7"
 
 [[package]]
-name = "dq-core"
-version = "0.1.0"
-dependencies = [
- "clap",
-]
-
-[[package]]
-name = "dq-json"
-version = "0.1.0"
-dependencies = [
- "dq-core",
- "serde_json",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -120,6 +105,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "291ec9ab5efd934aaf503a6466c5d5251535d108ee747472c3977cc5acc868ef"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "rq"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde_json",
 ]
 
 [[package]]
