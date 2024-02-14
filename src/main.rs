@@ -5,14 +5,17 @@ use std::{
     process::ExitCode,
 };
 
-use clap::{crate_authors, crate_version, Arg, ArgAction, Command};
+use clap::{crate_authors, crate_version, Arg, Command};
 use serde_json::Value;
 
+mod filter;
+use filter::Filter;
+
 fn main() -> Result<(), ExitCode> {
-    let command = Command::new("rq")
+    let arg_matches = Command::new("rq")
         .author(crate_authors!())
         .version(crate_version!())
-        .about("A rust-based clone of the popular jq CLI tool.")
+        .about("A rust-based CLI tool for processing inputs en masse.")
         .arg(
             Arg::new("compact")
                 .long("compact")
@@ -21,52 +24,18 @@ fn main() -> Result<(), ExitCode> {
         )
         .arg(
             Arg::new("null")
+                .long("null")
                 .short('n')
                 .help("use `null` as the single input value"),
         )
         .arg(
-            Arg::new("exit")
-                .short('e')
-                .help("set the exit status code based on the output"),
-        )
-        .arg(
-            Arg::new("slurp")
-                .short('s')
-                .help("read (slurp) all inputs into an array; apply filter to it"),
-        )
-        .arg(
-            Arg::new("write_raw")
-                .short('r')
-                .help("output raw strings, not [file format] texts"),
-        )
-        .arg(
-            Arg::new("read_raw")
-                .short('R')
-                .help("read raw strings, not [file format] texts"),
-        )
-        .arg(
-            Arg::new("colorize")
-                .short('C')
-                .help("colorize [file format]"),
-        )
-        .arg(
-            Arg::new("monochrome")
-                .short('M')
-                .help("monochrome (don't colorize [file format])"),
-        )
-        .arg(
             Arg::new("sort")
                 .short('S')
+                .long("sort")
                 .help("sort keys on objects on output"),
         )
         .arg(Arg::new("tab").long("tab").help("use tabs for indentation"))
-        .arg(Arg::new("file format"))
         .arg(Arg::new("filter"))
-        .arg(
-            Arg::new("last")
-                .last(true)
-                .help("terminates argument processing"),
-        )
         .after_help(
             r#"
 rq is a rust-based tool for processing various inputs, applying the 
@@ -90,27 +59,21 @@ Example:
         )
         .get_matches();
 
-    println!(
-        "filter: {:?}",
-        command
-            .get_one::<String>("filter")
-            .unwrap_or(&".".to_string())
-    );
-
-    return Ok(());
     let input = read_stdin_to_string()?;
 
-    let parsed: Value = match serde_json::from_str(&input) {
-        Err(err) => {
+    let filter = match arg_matches.get_one::<&str>("filter") {
+        None => {
             stderr()
-                .write(format!("Failed to parse JSON. Message: {}", err).as_bytes())
+                .write(b"filter is required, but was not provided.")
                 .ok();
             return Err(ExitCode::FAILURE);
         }
-        Ok(value) => value,
+        Some(filter) => {
+            Filter::new(*filter);
+        }
     };
 
-    return Ok(());
+    Ok(())
 }
 
 pub fn read_stdin_to_string() -> Result<String, ExitCode> {
@@ -118,13 +81,12 @@ pub fn read_stdin_to_string() -> Result<String, ExitCode> {
     match BufReader::new(stdin().lock()).read_to_end(&mut input) {
         Ok(_) => {}
         Err(err) => {
-            stderr()
-                .write(format!("\n{}", err).as_bytes())
-                .expect("Failed to write to standard error");
+            stderr().write(format!("\n{}", err).as_bytes()).ok();
+            return Err(ExitCode::FAILURE);
         }
     }
 
-    if input.len() == 0 {
+    if input.is_empty() {
         return Ok("".to_string());
     }
     let parsed_input;
@@ -184,5 +146,5 @@ pub fn read_stdin_to_string() -> Result<String, ExitCode> {
         },
     }
 
-    return Ok(parsed_input);
+    Ok(parsed_input)
 }
