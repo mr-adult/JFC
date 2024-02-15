@@ -1,0 +1,18 @@
+[package]
+name = "toy-json-formatter"
+version = "0.2.1"
+edition = "2021"
+license = "GPL-3.0"
+description = "This is a toy JSON formatter for me to practice learning about the JSON specification. It is not intended to be used in production environments."
+repository = "https://github.com/mr-adult/json-formatter"
+documentation = "https://docs.rs/toy-json-formatter/latest/toy_json_formatter/"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0.193", optional = true }
+serde_derive = { version = "1.0.193", optional = true }
+
+[features]
+default = []
+serde = ["dep:serde", "dep:serde_derive"]
