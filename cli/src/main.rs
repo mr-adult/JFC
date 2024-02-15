@@ -47,9 +47,10 @@ fn main() -> Result<(), ExitCode> {
                        \|__|\|__|\|___| \__\
                                        \|__|
 
-rq is a rust-based tool for processing JSON (both valid and malformed),
-applying the given filter to the text inputs and producing the filter's
-results in the same format on standard output.
+rq is a rust-based tool for processing JSON (both valid and malformed).
+it applies the given filter to the text inputs and produces the 
+filter's results as JSON on standard output. Any errors found along the
+way are emitted to standard error.
 
 The simplest filter is ., which copies rq's input to its output
 unmodified (except for formatting, but note that IEEE754 is used
