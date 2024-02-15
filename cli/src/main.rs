@@ -38,16 +38,22 @@ fn main() -> Result<(), ExitCode> {
         .arg(Arg::new("filter"))
         .after_help(
             r#"
-rq is a rust-based tool for processing various inputs, applying the 
-given filter to the text inputs and producing the filter's results in
-the same format on standard output.
+                    ________  ________      
+                   |\   __  \|\   __  \     
+                   \ \  \|\  \ \  \|\  \    
+                    \ \   _  _\ \  \\\  \   
+                     \ \  \\  \\ \  \\\  \  
+                      \ \__\\ _\\ \_____  \ 
+                       \|__|\|__|\|___| \__\
+                                       \|__|
+
+rq is a rust-based tool for processing JSON (both valid and malformed),
+applying the given filter to the text inputs and producing the filter's
+results in the same format on standard output.
 
 The simplest filter is ., which copies rq's input to its output
 unmodified (except for formatting, but note that IEEE754 is used
 for number representation internally, with all that that implies).
-
-For more advanced filters see the jq(1) manpage ("man jq")
-and/or https://stedolan.github.io/jq
 
 Example:
 
@@ -63,13 +69,13 @@ Example:
 
     let filter = match arg_matches.get_one::<&str>("filter") {
         None => {
-            stderr()
+            let _ = stderr()
                 .write(b"filter is required, but was not provided.")
                 .ok();
             return Err(ExitCode::FAILURE);
         }
         Some(filter) => {
-            Filter::new(*filter);
+            Filter::new(filter);
         }
     };
 
