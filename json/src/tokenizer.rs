@@ -1,10 +1,13 @@
-use std::{error::Error, fmt::Display, iter::Peekable, ops::Range, str::CharIndices};
+use std::{
+    collections::VecDeque, error::Error, fmt::Display, iter::Peekable, ops::Range, str::CharIndices,
+};
 
 pub(crate) struct JsonTokenizer<'i> {
     source_len: usize,
     chars: Peekable<CharIndices<'i>>,
     states: Vec<JsonTokenizerState>,
     lookahead: Option<JsonToken>,
+    unicode_escape_errs: VecDeque<JsonParseErr>,
     current_position: Position,
 }
 
@@ -16,6 +19,7 @@ impl<'i> JsonTokenizer<'i> {
             chars: source.char_indices().peekable(),
             states,
             lookahead: None,
+            unicode_escape_errs: VecDeque::with_capacity(0),
             current_position: Position::default(),
         }
     }
@@ -63,7 +67,6 @@ impl<'i> JsonTokenizer<'i> {
                     return Err(JsonParseErr::UnexpectedEOF);
                 }
                 Some(ch) => {
-                    let mut err = None;
                     match ch.1 {
                         '"' => {
                             return Ok(JsonToken {
@@ -76,15 +79,20 @@ impl<'i> JsonTokenizer<'i> {
                         }
                         '\\' => {
                             if self.match_char('u') {
-                                for index in 0..4 {
+                                for i in 0..4 {
                                     if !self.match_char_if(|ch| ch.is_ascii_hexdigit()) {
-                                        err = Some(JsonParseErr::UnexpectedCharacters(Span {
-                                            start: start.clone(),
-                                            end: self.peek_position(),
-                                        }));
+                                        let peeked = self.peek_position();
+                                        self.unicode_escape_errs.push_back(
+                                            JsonParseErr::InvalidUnicodeEscapeSequence(Span {
+                                                start: self.current_position.minus(i + 1),
+                                                end: peeked,
+                                            }),
+                                        );
                                         break;
                                     }
                                 }
+                                
+                                if !self.unicode_escape_errs.is_empty() { continue; }
                             }
 
                             // we're just tokenizing, not interpreting the value's escape sequences.
@@ -337,6 +345,10 @@ impl<'i> Iterator for JsonTokenizer<'i> {
     type Item = Result<JsonToken, JsonParseErr>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if let Some(unicode_err) = self.unicode_escape_errs.pop_front() {
+            return Some(Err(unicode_err));
+        }
+
         if let Some(lookahead) = std::mem::take(&mut self.lookahead) {
             return Some(Ok(lookahead));
         }
@@ -399,7 +411,18 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             }));
                                         }
                                         '"' => {
-                                            return Some(self.match_string());
+                                            let token_result = self.match_string();
+                                            let token = match token_result {
+                                                Err(err) => return Some(Err(err)),
+                                                Ok(token) => token,
+                                            };
+
+                                            if let Some(err) = self.unicode_escape_errs.pop_front()
+                                            {
+                                                self.lookahead = Some(token);
+                                                return Some(Err(err));
+                                            }
+                                            return Some(Ok(token));
                                         }
                                         '-' | '0'..='9' => {
                                             let num_value = self.match_number();
@@ -471,7 +494,18 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                             self.states.push(JsonTokenizerState::Value);
                             self.states.push(JsonTokenizerState::KeyValuePairColon);
 
-                            return Some(self.match_string());
+                            let token_result = self.match_string();
+                            let token = match token_result {
+                                Err(err) => return Some(Err(err)),
+                                Ok(token) => token,
+                            };
+
+                            if let Some(unicode_err) = self.unicode_escape_errs.pop_front() {
+                                self.lookahead = Some(token);
+                                return Some(Err(unicode_err));
+                            }
+
+                            return Some(Ok(token));
                         }
                         JsonTokenizerState::KeyValuePairColon => {
                             self.match_whitespace();
@@ -491,7 +525,18 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                         }
                         JsonTokenizerState::KeyValuePairKey => {
                             self.match_whitespace();
-                            return Some(self.match_string());
+                            let token_result = self.match_string();
+                            let token = match token_result {
+                                Err(err) => return Some(Err(err)),
+                                Ok(token) => token,
+                            };
+
+                            if let Some(unicode_err) = self.unicode_escape_errs.pop_front() {
+                                self.lookahead = Some(token);
+                                return Some(Err(unicode_err));
+                            }
+
+                            return Some(Ok(token));
                         }
                         JsonTokenizerState::AfterValue => {
                             self.match_whitespace();
@@ -588,6 +633,20 @@ pub(crate) struct Position {
     raw: usize,
 }
 
+impl Position {
+    /// this function assumes that you know the
+    /// value is on the same line. It will panic
+    /// if you subtract more than the number of
+    /// columns in the line so far.
+    fn minus(&self, amount: usize) -> Self {
+        Self {
+            line: self.line,
+            col: self.col - amount,
+            raw: self.raw - amount,
+        }
+    }
+}
+
 impl Default for Position {
     fn default() -> Self {
         Self {
@@ -635,6 +694,7 @@ pub(crate) enum JsonParseErr {
     IllegalLeading0(Position),
     UnexpectedCharacters(Span),
     TrailingComma(Position),
+    InvalidUnicodeEscapeSequence(Span),
 }
 
 impl Error for JsonParseErr {}
@@ -658,6 +718,10 @@ impl Display for JsonParseErr {
             JsonParseErr::TrailingComma(position) => {
                 result.push_str("Found illegal trailing comma at ");
                 result.push_str(&format!("{}", position));
+            }
+            JsonParseErr::InvalidUnicodeEscapeSequence(span) => {
+                result.push_str("Found invalid unicode escape sequence at ");
+                result.push_str(&format!("{}", span.start));
             }
         }
         f.write_str(&result)?;

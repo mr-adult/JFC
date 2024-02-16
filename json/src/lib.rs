@@ -364,6 +364,9 @@ mod tests {
                         JsonParseErr::UnexpectedCharacters(span) => {
                             println!("Unexpected chars: {}", &str[span.as_range()]);
                         }
+                        JsonParseErr::InvalidUnicodeEscapeSequence(span) => {
+                            println!("Invalid unicode escape sequence: {}", &str[span.as_range()])
+                        }
                         _ => {
                             println!("{:?}", err);
                         }
