@@ -1,5 +1,5 @@
 [package]
-name = "rq"
+name = "jfc"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,4 +9,4 @@ unsafe_code = "forbid"
 
 [dependencies]
 clap = { version = "4.5", features = ["cargo"] }
-
+toy-json-formatter = { path = "../json/" }
