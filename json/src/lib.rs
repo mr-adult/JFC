@@ -3,7 +3,7 @@ use tokenizer::{JsonParseErr, JsonTokenKind, JsonTokenizer};
 
 use std::{borrow::Cow, collections::HashMap, error::Error, str::FromStr};
 
-pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
+pub fn format(json: &str, indent_str: &str) -> (String, Vec<Box<dyn Error>>) {
     let mut result = String::new();
     let tokenizer = JsonTokenizer::new(json);
     let mut errs = Vec::new();
@@ -17,6 +17,9 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
                     result.push_str(&json[span.as_range()]);
                     errs.push(err);
                 }
+                JsonParseErr::TrailingComma(position) => {
+                    result.push_str(&json[position.as_index()..(position.as_index() + 1)])
+                }
                 _ => {
                     errs.push(err);
                 }
@@ -29,7 +32,7 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
                         {
                             result.push('\n');
                             for _ in 0..indent {
-                                result.push('\t');
+                                result.push_str(indent_str);
                             }
                         }
                         indent += 1;
@@ -42,7 +45,7 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
                         } else {
                             result.push('\n');
                             for _ in 0..indent {
-                                result.push('\t');
+                                result.push_str(indent_str);
                             }
                             result.push('}');
                         }
@@ -53,7 +56,7 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
                         {
                             result.push('\n');
                             for _ in 0..indent {
-                                result.push('\t');
+                                result.push_str(indent_str);
                             }
                         }
                         indent += 1;
@@ -66,7 +69,7 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
                         } else {
                             result.push('\n');
                             for _ in 0..indent {
-                                result.push('\t');
+                                result.push_str(indent_str);
                             }
                             result.push(']');
                         }
@@ -76,12 +79,11 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
                         result.push(' ');
                     }
                     JsonTokenKind::Comma => {
+                        result.push(',');
                         result.push('\n');
                         for _ in 0..indent {
-                            result.push('\t');
+                            result.push_str(indent_str);
                         }
-                        result.push(',');
-                        result.push(' ');
                     }
                     JsonTokenKind::String => {
                         if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
@@ -89,10 +91,12 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
                         {
                             result.push('\n');
                             for _ in 0..indent {
-                                result.push('\t');
+                                result.push_str(indent_str);
                             }
                         }
-                        result.push_str(&json[token.span.as_range()])
+                        result.push('\"');
+                        result.push_str(&json[token.span.as_range()]);
+                        result.push('\"');
                     }
                     JsonTokenKind::Number => {
                         if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
@@ -100,7 +104,7 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
                         {
                             result.push('\n');
                             for _ in 0..indent {
-                                result.push('\t');
+                                result.push_str(indent_str);
                             }
                         }
                         result.push_str(&json[token.span.as_range()])
@@ -111,7 +115,7 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
                         {
                             result.push('\n');
                             for _ in 0..indent {
-                                result.push('\t');
+                                result.push_str(indent_str);
                             }
                         }
                         result.push_str("true")
@@ -122,7 +126,7 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
                         {
                             result.push('\n');
                             for _ in 0..indent {
-                                result.push('\t');
+                                result.push_str(indent_str);
                             }
                         }
                         result.push_str("false")
@@ -133,7 +137,7 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
                         {
                             result.push('\n');
                             for _ in 0..indent {
-                                result.push('\t');
+                                result.push_str(indent_str);
                             }
                         }
                         result.push_str("null");
@@ -332,7 +336,7 @@ mod tests {
                 break;
             }
 
-            let output = super::format(&input);
+            let output = super::format(&input, "\t");
             let mut stdout = std::io::stdout();
             stdout
                 .write_all(output.0.as_bytes())
@@ -382,5 +386,16 @@ mod tests {
                 },
             }
         }
+    }
+
+    #[test]
+    fn doesnt_lose_chars_when_brackets_are_involved() {
+        let input = "{\"test\": \"value\",[]]}";
+        let (output, _) = super::format(input, "\t");
+        assert_eq!("{\n\t\"test\": \"value\",\n\t[]]\n}", output);
+
+        let input = "[[\"test\",}]]";
+        let (output, _) = super::format(input, "\t");
+        assert_eq!("[\n\t[\n\t\t\"test\",}\n\t]\n]", output);
     }
 }

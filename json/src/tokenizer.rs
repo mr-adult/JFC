@@ -29,10 +29,9 @@ impl<'i> JsonTokenizer<'i> {
     }
 
     fn match_string(&mut self) -> Result<JsonToken, JsonParseErr> {
-        match self.next_char() {
+        match self.chars.peek() {
             None => {
-                let mut new_unclosed = Vec::with_capacity(0);
-                std::mem::swap(&mut new_unclosed, &mut self.states);
+                self.states.clear();
                 self.lookahead = Some(JsonToken {
                     span: Span {
                         start: self.current_position.clone(),
@@ -42,8 +41,8 @@ impl<'i> JsonTokenizer<'i> {
                 });
                 return Err(JsonParseErr::UnexpectedEOF);
             }
-            Some(quote_val) => {
-                if quote_val.1 != '"' {
+            Some(_) => {
+                if !self.match_char('"') {
                     return Err(JsonParseErr::UnexpectedCharacters(
                         self.recover_in_panic_mode(),
                     ));
@@ -51,7 +50,7 @@ impl<'i> JsonTokenizer<'i> {
             }
         };
 
-        let start = self.current_position.clone();
+        let start = self.peek_position();
         loop {
             match self.next_char() {
                 None => {
@@ -60,7 +59,7 @@ impl<'i> JsonTokenizer<'i> {
                     self.lookahead = Some(JsonToken {
                         span: Span {
                             start,
-                            end: self.peek_position(),
+                            end: self.current_position.clone(),
                         },
                         kind: JsonTokenKind::String,
                     });
@@ -72,7 +71,7 @@ impl<'i> JsonTokenizer<'i> {
                             return Ok(JsonToken {
                                 span: Span {
                                     start,
-                                    end: self.peek_position(),
+                                    end: self.current_position.clone(),
                                 },
                                 kind: JsonTokenKind::String,
                             });
@@ -108,7 +107,7 @@ impl<'i> JsonTokenizer<'i> {
                             // and aid in fault tolerance/recovery
                             self.lookahead = Some(JsonToken {
                                 span: Span {
-                                    start: self.current_position.clone(),
+                                    start,
                                     end: self.peek_position(),
                                 },
                                 kind: JsonTokenKind::String,
@@ -122,16 +121,26 @@ impl<'i> JsonTokenizer<'i> {
         }
     }
 
-    fn match_number(&mut self) -> (JsonToken, Option<JsonParseErr>) {
+    fn match_number(&mut self) -> Result<JsonToken, JsonParseErr> {
         let start = self.peek_position();
         self.match_char('-');
-        let index_of_leading_0 = self.peek_position();
 
         let mut leading_0_err = None;
         if self.match_char('0') && self.match_char_if(|ch| ch.is_ascii_digit()) {
-            leading_0_err = Some(JsonParseErr::IllegalLeading0(index_of_leading_0));
+            leading_0_err = Some(JsonParseErr::IllegalLeading0(
+                self.current_position.minus(1),
+            ));
         }
+
+        let matched_digit = self.match_char_if(|ch| ch.is_ascii_digit());
         self.match_char_while(|ch| ch.is_ascii_digit());
+        if leading_0_err.is_none() && !matched_digit {
+            panic!(
+                "BUG: match_number was called, but did not find a number. {}",
+                self.current_position
+            );
+        }
+
         if self.match_char('.') {
             self.match_char_while(|ch| ch.is_ascii_digit());
         }
@@ -141,16 +150,20 @@ impl<'i> JsonTokenizer<'i> {
             self.match_char_while(|ch| ch.is_ascii_digit());
         }
 
-        (
-            JsonToken {
-                span: Span {
-                    start,
-                    end: self.peek_position(),
-                },
-                kind: JsonTokenKind::Number,
+        let token = JsonToken {
+            span: Span {
+                start,
+                end: self.peek_position(),
             },
-            leading_0_err,
-        )
+            kind: JsonTokenKind::Number,
+        };
+
+        if let Some(err) = leading_0_err {
+            self.lookahead = Some(token);
+            return Err(err);
+        }
+
+        Ok(token)
     }
 
     fn match_literal(&mut self, str: &str) -> bool {
@@ -264,7 +277,11 @@ impl<'i> JsonTokenizer<'i> {
                                     },
                                     kind: JsonTokenKind::ArrayEnd,
                                 });
-                                break;
+
+                                return Span {
+                                    start,
+                                    end: self.current_position.clone(),
+                                };
                             }
                         }
                         '}' => {
@@ -293,7 +310,11 @@ impl<'i> JsonTokenizer<'i> {
                                     },
                                     kind: JsonTokenKind::ObjectEnd,
                                 });
-                                break;
+
+                                return Span {
+                                    start,
+                                    end: self.current_position.clone(),
+                                };
                             }
                         }
                         ',' => {
@@ -336,7 +357,7 @@ impl<'i> JsonTokenizer<'i> {
 
                             return Span {
                                 start,
-                                end: self.peek_position(),
+                                end: self.current_position.clone(),
                             };
                         }
                         _ => {
@@ -389,8 +410,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                     if self.states.is_empty() {
                                         return None;
                                     } else {
-                                        let mut states = Vec::with_capacity(0);
-                                        std::mem::swap(&mut states, &mut self.states);
+                                        self.states.clear();
                                         return Some(Err(JsonParseErr::UnexpectedEOF));
                                     }
                                 }
@@ -439,14 +459,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             return Some(Ok(token));
                                         }
                                         '-' | '0'..='9' => {
-                                            let num_value = self.match_number();
-                                            match num_value {
-                                                (token, Some(err)) => {
-                                                    self.lookahead = Some(token);
-                                                    return Some(Err(err));
-                                                }
-                                                (token, None) => return Some(Ok(token)),
-                                            }
+                                            return Some(self.match_number());
                                         }
                                         _ => {
                                             let current_position = self.peek_position();
@@ -539,6 +552,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                         }
                         JsonTokenizerState::KeyValuePairKey => {
                             self.match_whitespace();
+
                             let token_result = self.match_string();
                             let token = match token_result {
                                 Err(err) => return Some(Err(err)),
@@ -648,6 +662,9 @@ pub(crate) struct Position {
 }
 
 impl Position {
+    pub(crate) fn as_index(&self) -> usize {
+        self.raw
+    }
     /// this function assumes that you know the
     /// value is on the same line. It will panic
     /// if you subtract more than the number of

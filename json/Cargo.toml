@@ -1,6 +1,6 @@
 [package]
 name = "toy-json-formatter"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "GPL-3.0"
 description = "This is a toy JSON formatter for me to practice learning about the JSON specification. It is not intended to be used in production environments."
@@ -13,4 +13,3 @@ documentation = "https://docs.rs/toy-json-formatter/latest/toy_json_formatter/"
 
 [features]
 default = []
-
