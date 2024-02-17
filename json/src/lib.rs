@@ -156,9 +156,6 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
     )
 }
 
-#[cfg(feature = "serde")]
-use serde::Serialize;
-
 #[derive(Clone, Debug)]
 pub enum JsonValue<'i> {
     Null,
@@ -172,16 +169,6 @@ pub enum JsonValue<'i> {
 #[derive(Clone, Debug)]
 pub struct JsonNumber<'i> {
     source: &'i str,
-}
-
-#[cfg(feature = "serde")]
-impl<'i> Serialize for JsonNumber<'i> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.source.serialize(serializer)
-    }
 }
 
 impl<'i> JsonNumber<'i> {
@@ -286,16 +273,6 @@ impl<'i> JsonString<'i> {
                 }
             }
         }
-    }
-}
-
-#[cfg(feature = "serde")]
-impl<'i> Serialize for JsonString<'i> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.source.serialize(serializer)
     }
 }
 

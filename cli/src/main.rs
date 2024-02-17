@@ -6,7 +6,6 @@ use std::{
 };
 
 use clap::{crate_authors, crate_version, Arg, Command};
-use serde_json::Value;
 
 mod filter;
 use filter::Filter;

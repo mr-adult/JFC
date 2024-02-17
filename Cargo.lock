@@ -172,10 +172,6 @@ dependencies = [
 [[package]]
 name = "toy-json-formatter"
 version = "0.2.1"
-dependencies = [
- "serde",
- "serde_derive",
-]
 
 [[package]]
 name = "unicode-ident"
