@@ -46,12 +46,13 @@ fn main() -> Result<(), ExitCode> {
              \ \________\ \__\   \ \_______\
               \|________|\|__|    \|_______|
 
-JSON Fucking Christ (JFC) is a rust-based tool for unfucking malformed 
-JSON. It does its best to transform whatever text you input on standard
-in into valid JSON without dropping any characters from the input. Any 
-errors found along the way are emitted to standard error. If you see 
-any characters being dropped from the input, please submit an issue to
-the git repo.
+JSON Formatting CLI (JFC) is a CLI tool written in Rust for working 
+with malformed JSON. It does its best to transform whatever text you 
+input on standard in into valid JSON without dropping any meaningful 
+characters from the input. Any errors found along the way are emitted 
+to standard error. In raw mode, no characters from the input are (or
+at least should be) dropped. If you see characters being dropped in 
+raw mode, please submit an issue to https://github.com/mr-adult/JFC.
 "#,
         )
         .get_matches();
@@ -97,6 +98,11 @@ the git repo.
             stderr.write_all(err_out.as_bytes()).ok();
             stderr.flush().ok();
         }
+    } else {
+        let mut stderr = stderr().lock();
+        stderr.write_all(b"Only raw mode has been implemented.").ok();
+        stderr.flush().ok();
+        return Err(ExitCode::FAILURE);
     }
     
     Ok(())
