@@ -1,4 +1,5 @@
 #![feature(str_from_utf16_endian)]
+#![doc = include_str!("../README.md")]
 
 use std::{
     fs::OpenOptions, io::{stderr, stdin, stdout, BufRead, BufReader, Read, Write}, process::ExitCode

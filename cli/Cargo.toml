@@ -2,6 +2,10 @@
 name = "jfc"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "A CLI tool for working with malformed JSON"
+repository = "https://github.com/mr-adult/JFC"
+documentation = "https://docs.rs/jfc/latest/jfc/"
 
 
 [lints.rust]
@@ -9,4 +13,4 @@ unsafe_code = "forbid"
 
 [dependencies]
 clap = { version = "4.5", features = ["cargo"] }
-toy-json-formatter = { path = "../json/" }
+toy-json-formatter = { version = "0.3.0", path = "../json/" }
