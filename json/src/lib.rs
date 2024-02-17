@@ -12,12 +12,12 @@ pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
 
     for token in tokenizer.into_iter() {
         match token {
-            Err(err) => match err {
+            Err(err) => match &err {
                 JsonParseErr::UnexpectedCharacters(span) => {
                     result.push_str(&json[span.as_range()]);
                     errs.push(err);
                 }
-                err => {
+                _ => {
                     errs.push(err);
                 }
             },
@@ -213,7 +213,7 @@ impl<'i> JsonString<'i> {
     pub fn escape(source: &str) -> Option<Cow<'_, str>> {
         let mut cow = Cow::Borrowed(source);
 
-        let mut chars = source.char_indices();
+        let mut chars = source.char_indices().peekable();
         loop {
             let ch = chars.next();
             match ch {
@@ -227,8 +227,8 @@ impl<'i> JsonString<'i> {
 
                         match chars.next() {
                             None => return None,
-                            Some((next_i, next_ch)) => {
-                                string.push(match next_ch {
+                            Some((_, next_ch)) => {
+                                let ch_to_add = match next_ch {
                                     '"' => '"',
                                     '\\' => '\\',
                                     '/' => '/',
@@ -238,24 +238,54 @@ impl<'i> JsonString<'i> {
                                     'r' => '\r',
                                     't' => '\t',
                                     'u' => {
-                                        let mut i = 0;
-                                        while i < 4 {
-                                            match chars.next() {
-                                                Some((_, '0'..='9')) => {}
-                                                _ => return None,
+                                        let mut code = String::with_capacity(4);
+                                        let mut is_valid_unicode_escape = true;
+
+                                        for _ in 0..4 {
+                                            match chars.peek() {
+                                                Some((_, ch)) => {
+                                                    if ch.is_ascii_hexdigit() {
+                                                        code.push(chars.next().unwrap().1);
+                                                    } else {
+                                                        is_valid_unicode_escape = false;
+                                                        string.push_str("\\u");
+                                                        string.push_str(&code);
+                                                        break;
+                                                    }
+                                                }
+                                                _ => {
+                                                    is_valid_unicode_escape = false;
+                                                    string.push_str("\\u");
+                                                    string.push_str(&code);
+                                                    break;
+                                                }
                                             }
-                                            i += 1;
                                         }
 
-                                        let int_str = &source[(next_i + 1)..(next_i + 5)];
-                                        let code = u32::from_str_radix(int_str, 16)
-                                            .expect("BUG: int_str should always be a valid u32");
+                                        if is_valid_unicode_escape {
+                                            match u32::from_str_radix(&code, 16) {
+                                                Ok(parsed) => match char::from_u32(parsed) {
+                                                    Some(ch) => string.push(ch),
+                                                    None => {
+                                                        string.push_str("\\u");
+                                                        string.push_str(&code);
+                                                    }
+                                                },
+                                                Err(_) => {
+                                                    string.push_str("\\u");
+                                                    string.push_str(&code);
+                                                }
+                                            }
+                                        }
 
-                                        char::from_u32(code)
-                                            .expect("BUG: char::from_u32 should not fail.")
+                                        // We're doing custom additions to the string, so no
+                                        // need to pass a character to the outer loop
+                                        cow = Cow::Owned(string);
+                                        continue;
                                     }
                                     _ => return None,
-                                });
+                                };
+                                string.push(ch_to_add);
                                 cow = Cow::Owned(string)
                             }
                         }
@@ -283,7 +313,10 @@ mod tests {
         io::{BufRead, Write},
     };
 
-    use crate::{tokenizer::{JsonParseErr, JsonTokenizer}, JsonString};
+    use crate::{
+        tokenizer::{JsonParseErr, JsonTokenizer},
+        JsonString,
+    };
 
     // #[test]
     fn test_bench() {
@@ -336,19 +369,17 @@ mod tests {
                     print!("{:?} ", token.kind);
                     println!("/{}/", &str[token.span.as_range()]);
                 }
-                Err(err) => {
-                    match err {
-                        JsonParseErr::UnexpectedCharacters(span) => {
-                            println!("Unexpected chars: {}", &str[span.as_range()]);
-                        }
-                        JsonParseErr::InvalidUnicodeEscapeSequence(span) => {
-                            println!("Invalid unicode escape sequence: {}", &str[span.as_range()])
-                        }
-                        _ => {
-                            println!("{:?}", err);
-                        }
+                Err(err) => match err {
+                    JsonParseErr::UnexpectedCharacters(span) => {
+                        println!("Unexpected chars: {}", &str[span.as_range()]);
                     }
-                }
+                    JsonParseErr::InvalidUnicodeEscapeSequence(span) => {
+                        println!("Invalid unicode escape sequence: {}", &str[span.as_range()])
+                    }
+                    _ => {
+                        println!("{:?}", err);
+                    }
+                },
             }
         }
     }

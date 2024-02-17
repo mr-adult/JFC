@@ -35,7 +35,7 @@ impl<'i> JsonTokenizer<'i> {
                 std::mem::swap(&mut new_unclosed, &mut self.states);
                 self.lookahead = Some(JsonToken {
                     span: Span {
-                        start: self.current_position,
+                        start: self.current_position.clone(),
                         end: self.peek_position(),
                     },
                     kind: JsonTokenKind::String,
@@ -91,8 +91,10 @@ impl<'i> JsonTokenizer<'i> {
                                         break;
                                     }
                                 }
-                                
-                                if !self.unicode_escape_errs.is_empty() { continue; }
+
+                                if !self.unicode_escape_errs.is_empty() {
+                                    continue;
+                                }
                             }
 
                             // we're just tokenizing, not interpreting the value's escape sequences.
@@ -100,6 +102,18 @@ impl<'i> JsonTokenizer<'i> {
                             self.match_char_if(|ch| {
                                 matches!(ch, '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't')
                             });
+                        }
+                        '\n' | '\t' => {
+                            // label these as errors because they are very rare in strings
+                            // and aid in fault tolerance/recovery
+                            self.lookahead = Some(JsonToken {
+                                span: Span {
+                                    start: self.current_position.clone(),
+                                    end: self.peek_position(),
+                                },
+                                kind: JsonTokenKind::String,
+                            });
+                            return Err(JsonParseErr::UnclosedString(self.peek_position()));
                         }
                         _ => {} // just continue
                     }
@@ -614,7 +628,7 @@ pub(crate) struct JsonToken {
     pub(crate) kind: JsonTokenKind,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Span {
     start: Position,
     end: Position,
@@ -626,7 +640,7 @@ impl Span {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Position {
     line: usize,
     col: usize,
@@ -695,6 +709,7 @@ pub(crate) enum JsonParseErr {
     UnexpectedCharacters(Span),
     TrailingComma(Position),
     InvalidUnicodeEscapeSequence(Span),
+    UnclosedString(Position),
 }
 
 impl Error for JsonParseErr {}
@@ -722,6 +737,10 @@ impl Display for JsonParseErr {
             JsonParseErr::InvalidUnicodeEscapeSequence(span) => {
                 result.push_str("Found invalid unicode escape sequence at ");
                 result.push_str(&format!("{}", span.start));
+            }
+            JsonParseErr::UnclosedString(position) => {
+                result.push_str("Found unclosed string at ");
+                result.push_str(&format!("{}", position));
             }
         }
         f.write_str(&result)?;
