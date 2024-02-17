@@ -3,12 +3,27 @@ use tokenizer::{JsonParseErr, JsonTokenKind, JsonTokenizer};
 
 use std::{borrow::Cow, collections::HashMap, error::Error, str::FromStr};
 
-pub fn format(json: &str, indent_str: &str) -> (String, Vec<Box<dyn Error>>) {
+pub struct FormatOptions<'a> {
+    /// Compact mode removes all whitespace
+    pub compact: bool,
+    /// This string will be used as the indentation string
+    pub indent_str: &'a str,
+}
+
+pub fn format(json: &str, options: Option<FormatOptions<'_>>) -> (String, Vec<Box<dyn Error>>) {
     let mut result = String::new();
     let tokenizer = JsonTokenizer::new(json);
     let mut errs = Vec::new();
     let mut indent = 0;
     let mut previous = None;
+
+    let chosen_options = options.unwrap_or_else(|| FormatOptions {
+        compact: false,
+        indent_str: "\t",
+    });
+
+    let compact_mode = chosen_options.compact;
+    let indent_str = chosen_options.indent_str;
 
     for token in tokenizer.into_iter() {
         match token {
@@ -27,71 +42,89 @@ pub fn format(json: &str, indent_str: &str) -> (String, Vec<Box<dyn Error>>) {
             Ok(token) => {
                 match token.kind {
                     JsonTokenKind::ObjectStart => {
-                        if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
-                            previous
-                        {
-                            result.push('\n');
-                            for _ in 0..indent {
-                                result.push_str(indent_str);
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
                             }
                         }
                         indent += 1;
                         result.push('{');
                     }
                     JsonTokenKind::ObjectEnd => {
-                        indent -= 1;
+                        if indent > 0 {
+                            indent -= 1;
+                        }
                         if let Some(JsonTokenKind::ObjectStart) = previous {
                             result.push('}');
                         } else {
-                            result.push('\n');
-                            for _ in 0..indent {
-                                result.push_str(indent_str);
+                            if !compact_mode {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
                             }
                             result.push('}');
                         }
                     }
                     JsonTokenKind::ArrayStart => {
-                        if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
-                            previous
-                        {
-                            result.push('\n');
-                            for _ in 0..indent {
-                                result.push_str(indent_str);
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
                             }
                         }
                         indent += 1;
                         result.push('[');
                     }
                     JsonTokenKind::ArrayEnd => {
-                        indent -= 1;
+                        if indent > 0 {
+                            indent -= 1;
+                        }
                         if let Some(JsonTokenKind::ArrayStart) = previous {
                             result.push(']');
                         } else {
-                            result.push('\n');
-                            for _ in 0..indent {
-                                result.push_str(indent_str);
+                            if !compact_mode {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
                             }
                             result.push(']');
                         }
                     }
                     JsonTokenKind::Colon => {
                         result.push(':');
-                        result.push(' ');
+                        if !compact_mode {
+                            result.push(' ');
+                        }
                     }
                     JsonTokenKind::Comma => {
                         result.push(',');
-                        result.push('\n');
-                        for _ in 0..indent {
-                            result.push_str(indent_str);
-                        }
-                    }
-                    JsonTokenKind::String => {
-                        if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
-                            previous
-                        {
+                        if !compact_mode {
                             result.push('\n');
                             for _ in 0..indent {
                                 result.push_str(indent_str);
+                            }
+                        }
+                    }
+                    JsonTokenKind::String => {
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
                             }
                         }
                         result.push('\"');
@@ -102,48 +135,59 @@ pub fn format(json: &str, indent_str: &str) -> (String, Vec<Box<dyn Error>>) {
                         if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
                             previous
                         {
-                            result.push('\n');
-                            for _ in 0..indent {
-                                result.push_str(indent_str);
+                            if !compact_mode {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
                             }
                         }
                         result.push_str(&json[token.span.as_range()])
                     }
                     JsonTokenKind::True => {
-                        if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
-                            previous
-                        {
-                            result.push('\n');
-                            for _ in 0..indent {
-                                result.push_str(indent_str);
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
                             }
                         }
                         result.push_str("true")
                     }
                     JsonTokenKind::False => {
-                        if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
-                            previous
-                        {
-                            result.push('\n');
-                            for _ in 0..indent {
-                                result.push_str(indent_str);
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
                             }
                         }
                         result.push_str("false")
                     }
                     JsonTokenKind::Null => {
-                        if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
-                            previous
-                        {
-                            result.push('\n');
-                            for _ in 0..indent {
-                                result.push_str(indent_str);
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
                             }
                         }
                         result.push_str("null");
                     }
                 }
-                previous = Some(token.kind);
+                // we only need this for whitespace decisions, so skip if in compact mode
+                if !compact_mode {
+                    previous = Some(token.kind);
+                }
             }
         }
     }
@@ -336,7 +380,7 @@ mod tests {
                 break;
             }
 
-            let output = super::format(&input, "\t");
+            let output = super::format(&input, None);
             let mut stdout = std::io::stdout();
             stdout
                 .write_all(output.0.as_bytes())
@@ -370,6 +414,7 @@ mod tests {
         for result in JsonTokenizer::new(str) {
             match result {
                 Ok(token) => {
+                    println!("{:?}", token.span.as_range());
                     print!("{:?} ", token.kind);
                     println!("/{}/", &str[token.span.as_range()]);
                 }
@@ -391,11 +436,11 @@ mod tests {
     #[test]
     fn doesnt_lose_chars_when_brackets_are_involved() {
         let input = "{\"test\": \"value\",[]]}";
-        let (output, _) = super::format(input, "\t");
+        let (output, _) = super::format(input, None);
         assert_eq!("{\n\t\"test\": \"value\",\n\t[]]\n}", output);
 
         let input = "[[\"test\",}]]";
-        let (output, _) = super::format(input, "\t");
+        let (output, _) = super::format(input, None);
         assert_eq!("[\n\t[\n\t\t\"test\",}\n\t]\n]", output);
     }
 }

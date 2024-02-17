@@ -739,7 +739,7 @@ impl Display for JsonParseErr {
             }
             JsonParseErr::UnexpectedCharacters(span) => {
                 result.push_str(&format!(
-                    "Found unexpected character at {}. Entered panic mode, skipping characters until {}", 
+                    "Found unexpected character at {}. Entered panic mode, resynchronizing at {}", 
                     span.start,
                     span.end
                 ));
