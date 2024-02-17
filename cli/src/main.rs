@@ -1,12 +1,11 @@
 #![feature(str_from_utf16_endian)]
 
 use std::{
-    io::{stderr, stdin, BufReader, Read, Write},
-    process::ExitCode,
+    fs::OpenOptions, io::{stderr, stdin, stdout, BufRead, BufReader, Read, Write}, process::ExitCode
 };
 
-use clap::{command, Arg};
-
+use clap::{command, Arg, ArgAction};
+use toy_json_formatter::{format, FormatOptions};
 
 fn main() -> Result<(), ExitCode> {
     let arg_matches = command!()
@@ -15,16 +14,30 @@ fn main() -> Result<(), ExitCode> {
             Arg::new("compact")
                 .long("compact")
                 .short('c')
+                .action(ArgAction::SetTrue)
                 .help("compact instead of pretty-printed output"),
+        )            
+        .arg(
+            Arg::new("raw")
+                .long("raw")
+                .short('r')
+                .action(ArgAction::SetTrue)
+                .help("tells jfc not to insert any new tokens to fix the output. Instead, only whitespace will be inserted into the output")
+        )
+        .arg(
+            Arg::new("file")
+                .long("file")
+                .short('f')
+                .help("read the input as a file path instead of a JSON string")
         )
         .arg(
             Arg::new("tab")
                 .long("tab")
+                .action(ArgAction::SetTrue)
                 .help("use tabs for indentation (default: 2 spaces)"),
         )
         .after_help(
             r#"
-
                  ___  ________ ________     
                 |\  \|\  _____\\   ____\    
                 \ \  \ \  \__/\ \  \___|    
@@ -34,27 +47,74 @@ fn main() -> Result<(), ExitCode> {
               \|________|\|__|    \|_______|
 
 JSON Fucking Christ (JFC) is a rust-based tool for unfucking malformed 
-JSON. It does its best to make sense of whatever text you input into it.
-Any errors found along the way are emitted to standard error.
+JSON. It does its best to transform whatever text you input on standard
+in into valid JSON without dropping any characters from the input. Any 
+errors found along the way are emitted to standard error. If you see 
+any characters being dropped from the input, please submit an issue to
+the git repo.
 "#,
         )
         .get_matches();
 
-    let input = read_stdin_to_string()?;
-
+    let compact = arg_matches.get_one("compact").unwrap_or(&false);
+    let raw = arg_matches.get_one("raw").unwrap_or(&false);
+    let empty_string = String::with_capacity(0);                                                                                                    
+    let file = arg_matches.get_one::<String>("file").unwrap_or(&empty_string);
+    
+    let tab = arg_matches.get_one::<bool>("tab").unwrap_or(&false);
+    let indent_str = if *tab { "\t" } else { "  " };
+   
+    let input = if file.is_empty() {
+        let reader = BufReader::new(stdin().lock());                                                                                     
+        read_buf_to_string(reader)?
+    } else {
+        match OpenOptions::new()
+            .read(true)
+            .write(false)
+            .open(file) {
+                Ok(file) => {
+                    let reader = BufReader::new(file);
+                    read_buf_to_string(reader)?
+                } Err(err) => {
+                    let mut stderr = stderr().lock();
+                    stderr.write_all(format!("Failed to open file '{}'. Message: {}", file, err).as_bytes()).ok();
+                    stderr.write(&[b'\n']).ok();
+                    stderr.flush().ok();
+                    return Err(ExitCode::FAILURE)
+                }
+            }
     };
 
+    if *raw {
+        let (output, errs) = format(&input, Some(FormatOptions { compact: *compact, indent_str }));
+        let mut stdout = stdout().lock();
+        stdout.write_all(output.as_bytes()).ok();
+        stdout.write(&[b'\n', b'\n']).ok();
+        stdout.flush().ok();
+        if !errs.is_empty() {
+            let err_out = errs.into_iter().map(|err| format!("{}", err)).collect::<Vec<_>>().join("\n");
+            let mut stderr = stderr().lock();
+            stderr.write_all(err_out.as_bytes()).ok();
+            stderr.flush().ok();
+        }
+    }
+    
     Ok(())
 }
 
-pub fn read_stdin_to_string() -> Result<String, ExitCode> {
+pub fn read_buf_to_string<T: Read>(mut reader: BufReader<T>) -> Result<String, ExitCode> {
     let mut input = Vec::new();
-    match BufReader::new(stdin().lock()).read_to_end(&mut input) {
-        Ok(_) => {}
-        Err(err) => {
-            stderr().write(format!("\n{}", err).as_bytes()).ok();
-            return Err(ExitCode::FAILURE);
+    let mut line = Vec::new();
+    // Ok(0) signals EOF
+    while let Ok(1..) = reader.read_until(b'\n', &mut line) {
+        if line.is_empty() {
+            break;
+        } else {
+            for byte in line {
+                input.push(byte);
+            }
         }
+        line = Vec::new();
     }
 
     if input.is_empty() {
