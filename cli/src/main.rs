@@ -7,8 +7,6 @@ use std::{
 
 use clap::{command, Arg};
 
-mod filter;
-use filter::Filter;
 
 fn main() -> Result<(), ExitCode> {
     let arg_matches = command!()
@@ -24,7 +22,6 @@ fn main() -> Result<(), ExitCode> {
                 .long("tab")
                 .help("use tabs for indentation (default: 2 spaces)"),
         )
-        .arg(Arg::new("filter"))
         .after_help(
             r#"
 
@@ -45,16 +42,6 @@ Any errors found along the way are emitted to standard error.
 
     let input = read_stdin_to_string()?;
 
-    let filter = match arg_matches.get_one::<&str>("filter") {
-        None => {
-            let _ = stderr()
-                .write(b"filter is required, but was not provided.")
-                .ok();
-            return Err(ExitCode::FAILURE);
-        }
-        Some(filter) => {
-            Filter::new(filter);
-        }
     };
 
     Ok(())
