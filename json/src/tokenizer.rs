@@ -130,17 +130,14 @@ impl<'i> JsonTokenizer<'i> {
             leading_0_err = Some(JsonParseErr::IllegalLeading0(
                 self.current_position.minus(1),
             ));
+        } else if !self.match_char_if(|ch| ch.is_ascii_digit()) {
+            // We found only a dash... need to panic.
+            let mut span = self.recover_in_panic_mode();
+            span.start = start;
+            return Err(JsonParseErr::UnexpectedCharacters(span));
         }
 
-        let matched_digit = self.match_char_if(|ch| ch.is_ascii_digit());
         self.match_char_while(|ch| ch.is_ascii_digit());
-        if leading_0_err.is_none() && !matched_digit {
-            panic!(
-                "BUG: match_number was called, but did not find a number. {}",
-                self.current_position
-            );
-        }
-
         if self.match_char('.') {
             self.match_char_while(|ch| ch.is_ascii_digit());
         }
