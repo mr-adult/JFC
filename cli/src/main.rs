@@ -5,16 +5,14 @@ use std::{
     process::ExitCode,
 };
 
-use clap::{crate_authors, crate_version, Arg, Command};
+use clap::{command, Arg};
 
 mod filter;
 use filter::Filter;
 
 fn main() -> Result<(), ExitCode> {
-    let arg_matches = Command::new("rq")
-        .author(crate_authors!())
-        .version(crate_version!())
-        .about("A rust-based CLI tool for processing inputs en masse.")
+    let arg_matches = command!()
+        .about("A tool for unfucking malformed JSON")
         .arg(
             Arg::new("compact")
                 .long("compact")
@@ -22,45 +20,25 @@ fn main() -> Result<(), ExitCode> {
                 .help("compact instead of pretty-printed output"),
         )
         .arg(
-            Arg::new("null")
-                .long("null")
-                .short('n')
-                .help("use `null` as the single input value"),
+            Arg::new("tab")
+                .long("tab")
+                .help("use tabs for indentation (default: 2 spaces)"),
         )
-        .arg(
-            Arg::new("sort")
-                .short('S')
-                .long("sort")
-                .help("sort keys on objects on output"),
-        )
-        .arg(Arg::new("tab").long("tab").help("use tabs for indentation"))
         .arg(Arg::new("filter"))
         .after_help(
             r#"
-                    ________  ________      
-                   |\   __  \|\   __  \     
-                   \ \  \|\  \ \  \|\  \    
-                    \ \   _  _\ \  \\\  \   
-                     \ \  \\  \\ \  \\\  \  
-                      \ \__\\ _\\ \_____  \ 
-                       \|__|\|__|\|___| \__\
-                                       \|__|
 
-rq is a rust-based tool for processing JSON (both valid and malformed).
-it applies the given filter to the text inputs and produces the 
-filter's results as JSON on standard output. Any errors found along the
-way are emitted to standard error.
+                 ___  ________ ________     
+                |\  \|\  _____\\   ____\    
+                \ \  \ \  \__/\ \  \___|    
+              __ \ \  \ \   __\\ \  \       
+             |\  \\_\  \ \  \_| \ \  \____  
+             \ \________\ \__\   \ \_______\
+              \|________|\|__|    \|_______|
 
-The simplest filter is ., which copies rq's input to its output
-unmodified (except for formatting, but note that IEEE754 is used
-for number representation internally, with all that that implies).
-
-Example:
-
-    $ echo '{"foo": 0}' | rq j .
-    {
-        "foo": 0
-    }
+JSON Fucking Christ (JFC) is a rust-based tool for unfucking malformed 
+JSON. It does its best to make sense of whatever text you input into it.
+Any errors found along the way are emitted to standard error.
 "#,
         )
         .get_matches();
