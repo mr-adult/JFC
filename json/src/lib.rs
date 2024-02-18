@@ -128,9 +128,7 @@ pub fn format(json: &str, options: Option<FormatOptions<'_>>) -> (String, Vec<Bo
                                 }
                             }
                         }
-                        result.push('\"');
                         result.push_str(&json[token.span.as_range()]);
-                        result.push('\"');
                     }
                     JsonTokenKind::Number => {
                         if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
@@ -224,7 +222,7 @@ mod tests {
 
     use crate::{
         parser::JsonString,
-        tokenizer::{JsonParseErr, JsonTokenizer},
+        tokenizer::{JsonParseErr, JsonTokenizer}, FormatOptions,
     };
 
     // #[test]
@@ -303,5 +301,53 @@ mod tests {
         let input = "[[\"test\",}]]";
         let (output, _) = super::format(input, None);
         assert_eq!("[\n\t[\n\t\t\"test\",}\n\t]\n]", output);
+
+        let input = "{{{}}";
+        let (output, _) = super::format(input, Some(FormatOptions { compact: true, indent_str: "\t" }));
+        assert_eq!("{{{}}", output);
+
+        let input = "[[[]]";
+        let (output, _) = super::format(input, Some(FormatOptions { compact: true, indent_str: "\t" }));
+        assert_eq!("[[[]]", output);
+
+
+        let input = "}}}";
+        let (output, _) = super::format(input, Some(FormatOptions { compact: true, indent_str: "\t" }));
+        assert_eq!("}}}", output);
+
+        let input = "{{{";
+        let (output, _) = super::format(input, Some(FormatOptions { compact: true, indent_str: "\t" }));
+        assert_eq!("{{{", output);
+        
+        let input = "]]]";
+        let (output, _) = super::format(input, Some(FormatOptions { compact: true, indent_str: "\t" }));
+        assert_eq!("]]]", output);
+
+        let input = "[[[";
+        let (output, _) = super::format(input, Some(FormatOptions { compact: true, indent_str: "\t" }));
+        assert_eq!("[[[", output);
+
+        let input = "{{}}}";
+        let (output, _) = super::format(input, Some(FormatOptions { compact: true, indent_str: "\t" }));
+        assert_eq!("{{}}}", output);
+        
+        let input = "[[]]]";
+        let (output, _) = super::format(input, Some(FormatOptions { compact: true, indent_str: "\t" }));
+        assert_eq!("[[]]]", output);
+    }
+
+    #[test]
+    fn handles_simple_inputs_correctly() {
+        let input = "test";
+        let (output, _) = super::format(input, None);
+        assert_eq!("test", output);
+
+        let input = "\"test";
+        let (output, _) = super::format(input, None);
+        assert_eq!("\"test", output);
+        
+        let input = "test\"";
+        let (output, _) = super::format(input, None);
+        assert_eq!("test\"", output);
     }
 }

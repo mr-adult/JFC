@@ -31,12 +31,13 @@ impl<'i> JsonTokenizer<'i> {
     }
 
     fn match_string(&mut self) -> Result<JsonToken, JsonParseErr> {
+        let start = self.peek_position();
         match self.chars.peek() {
             None => {
                 self.states.clear();
                 self.lookahead = Some(JsonToken {
                     span: Span {
-                        start: self.current_position.clone(),
+                        start: start,
                         end: self.peek_position(),
                     },
                     kind: JsonTokenKind::String,
@@ -52,16 +53,14 @@ impl<'i> JsonTokenizer<'i> {
             }
         };
 
-        let start = self.peek_position();
         loop {
             match self.next_char() {
                 None => {
-                    let mut new_unclosed = Vec::with_capacity(0);
-                    std::mem::swap(&mut new_unclosed, &mut self.states);
+                    self.states.clear();
                     self.lookahead = Some(JsonToken {
                         span: Span {
                             start,
-                            end: self.current_position.clone(),
+                            end: self.peek_position(),
                         },
                         kind: JsonTokenKind::String,
                     });
@@ -73,7 +72,7 @@ impl<'i> JsonTokenizer<'i> {
                             return Ok(JsonToken {
                                 span: Span {
                                     start,
-                                    end: self.current_position.clone(),
+                                    end: self.peek_position(),
                                 },
                                 kind: JsonTokenKind::String,
                             });
@@ -458,7 +457,13 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             return Some(self.match_number());
                                         }
                                         _ => {
-                                            let current_position = self.peek_position();
+                                            let current_position = if self.current_position.raw == 0
+                                            {
+                                                self.current_position.clone()
+                                            } else {
+                                                self.peek_position()
+                                            };
+
                                             if self.match_literal("true") {
                                                 return Some(Ok(JsonToken {
                                                     span: Span {
@@ -492,8 +497,10 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             // re-push value back onto the stack, removing AfterValue
                                             self.states.pop();
                                             self.states.push(JsonParseState::Value);
+                                            let mut span = self.recover_in_panic_mode();
+                                            span.start = current_position;
                                             return Some(Err(JsonParseErr::UnexpectedCharacters(
-                                                self.recover_in_panic_mode(),
+                                                span,
                                             )));
                                         }
                                     }
