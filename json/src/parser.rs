@@ -5,7 +5,7 @@ use crate::{
     JsonParseState,
 };
 
-pub fn parse(json: &str) -> Value {
+pub (crate) fn parse(json: &str) -> Value {
     for result in JsonTokenizer::new(json) {
         match result {
             Ok(token) => match token.kind {
@@ -245,7 +245,7 @@ impl<'json> JsonParser<'json> {
     }
 }
 
-pub enum Value<'json> {
+pub (crate) enum Value<'json> {
     Null,
     Bool(bool),
     Number(JsonNumber<'json>),
@@ -255,7 +255,7 @@ pub enum Value<'json> {
 }
 
 #[derive(Clone, Debug)]
-pub struct JsonNumber<'json> {
+pub (crate) struct JsonNumber<'json> {
     source: &'json str,
 }
 
@@ -264,7 +264,7 @@ impl<'json> JsonNumber<'json> {
         Self { source }
     }
 
-    pub fn parse<T>(&self) -> Result<T, <T as FromStr>::Err>
+    pub (crate) fn parse<T>(&self) -> Result<T, <T as FromStr>::Err>
     where
         T: FromStr,
     {
@@ -273,7 +273,7 @@ impl<'json> JsonNumber<'json> {
 }
 
 #[derive(Clone, Debug)]
-pub struct JsonString<'json> {
+pub (crate) struct JsonString<'json> {
     source: &'json str,
     cow: Option<Cow<'json, str>>,
 }
@@ -286,11 +286,11 @@ impl<'json> JsonString<'json> {
         }
     }
 
-    pub fn raw(&self) -> &str {
+    pub (crate) fn raw(&self) -> &str {
         self.source
     }
 
-    pub fn parsed(&self) -> &Option<Cow<'json, str>> {
+    pub (crate) fn parsed(&self) -> &Option<Cow<'json, str>> {
         &self.cow
     }
 
@@ -298,7 +298,7 @@ impl<'json> JsonString<'json> {
     /// is not a valid JSON string, returns None. If the string is
     /// parsed without issue, returns Some() with the Cow containing
     /// the escaped string.
-    pub fn escape(source: &str) -> Option<Cow<'_, str>> {
+    pub (crate) fn escape(source: &str) -> Option<Cow<'_, str>> {
         let mut cow = Cow::Borrowed(source);
 
         let mut chars = source.char_indices().peekable();
