@@ -728,7 +728,7 @@ impl Display for JsonParseErr {
         let mut result = String::new();
         match self {
             JsonParseErr::UnexpectedEOF => {
-                result.push_str("Unexpected EOF. Expected");
+                result.push_str("Unexpected EOF.");
             }
             JsonParseErr::IllegalLeading0(location) => {
                 result.push_str(&format!("found illegal leading 0 at {}", location));
