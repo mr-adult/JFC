@@ -3,8 +3,8 @@ name = "toy-json-formatter"
 version = "0.3.1"
 edition = "2021"
 license = "GPL-3.0"
-description = "This is a toy JSON formatter for me to practice learning about the JSON specification. It is not intended to be used in production environments."
-repository = "https://github.com/mr-adult/json-formatter"
+description = "This is a JSON formatter that is built to be fault tolerant from the ground up. Its job is to take any input and do its best to parse it and format it as JSON."
+repository = "https://github.com/mr-adult/JFC"
 documentation = "https://docs.rs/toy-json-formatter/latest/toy_json_formatter/"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
