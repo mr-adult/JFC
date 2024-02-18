@@ -4,17 +4,17 @@ use std::{
 
 use crate::JsonParseState;
 
-pub(crate) struct JsonTokenizer<'i> {
+pub(crate) struct JsonTokenizer<'json> {
     source_len: usize,
-    chars: Peekable<CharIndices<'i>>,
+    chars: Peekable<CharIndices<'json>>,
     states: Vec<JsonParseState>,
     lookahead: Option<JsonToken>,
     unicode_escape_errs: VecDeque<JsonParseErr>,
     current_position: Position,
 }
 
-impl<'i> JsonTokenizer<'i> {
-    pub(crate) fn new(source: &'i str) -> Self {
+impl<'json> JsonTokenizer<'json> {
+    pub(crate) fn new(source: &'json str) -> Self {
         let states = vec![JsonParseState::Value];
         Self {
             source_len: source.len(),
@@ -523,19 +523,8 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                             self.states.push(JsonParseState::Object);
                             self.states.push(JsonParseState::Value);
                             self.states.push(JsonParseState::KeyValuePairColon);
-
-                            let token_result = self.match_string();
-                            let token = match token_result {
-                                Err(err) => return Some(Err(err)),
-                                Ok(token) => token,
-                            };
-
-                            if let Some(unicode_err) = self.unicode_escape_errs.pop_front() {
-                                self.lookahead = Some(token);
-                                return Some(Err(unicode_err));
-                            }
-
-                            return Some(Ok(token));
+                            self.states.push(JsonParseState::KeyValuePairKey);
+                            continue;
                         }
                         JsonParseState::KeyValuePairColon => {
                             self.match_whitespace();
@@ -585,7 +574,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                 match self
                                     .states
                                     .last()
-                                    .expect("states to include at least 1 value")
+                                    .expect("BUG: States should include at least 1 value")
                                 {
                                     JsonParseState::Object => {
                                         self.states.push(JsonParseState::Value);
@@ -609,7 +598,10 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             kind: JsonTokenKind::Comma,
                                         }));
                                     }
-                                    _ => {
+                                    JsonParseState::Value
+                                    | JsonParseState::AfterValue
+                                    | JsonParseState::KeyValuePairColon
+                                    | JsonParseState::KeyValuePairKey => {
                                         return Some(Err(JsonParseErr::UnexpectedCharacters(
                                             self.recover_in_panic_mode(),
                                         )));
