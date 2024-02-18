@@ -2,10 +2,12 @@ use std::{
     collections::VecDeque, error::Error, fmt::Display, iter::Peekable, ops::Range, str::CharIndices,
 };
 
+use crate::JsonParseState;
+
 pub(crate) struct JsonTokenizer<'i> {
     source_len: usize,
     chars: Peekable<CharIndices<'i>>,
-    states: Vec<JsonTokenizerState>,
+    states: Vec<JsonParseState>,
     lookahead: Option<JsonToken>,
     unicode_escape_errs: VecDeque<JsonParseErr>,
     current_position: Position,
@@ -13,7 +15,7 @@ pub(crate) struct JsonTokenizer<'i> {
 
 impl<'i> JsonTokenizer<'i> {
     pub(crate) fn new(source: &'i str) -> Self {
-        let states = vec![JsonTokenizerState::Value];
+        let states = vec![JsonParseState::Value];
         Self {
             source_len: source.len(),
             chars: source.char_indices().peekable(),
@@ -253,7 +255,7 @@ impl<'i> JsonTokenizer<'i> {
                                 .states
                                 .iter()
                                 .rev()
-                                .any(|state| *state == JsonTokenizerState::Array)
+                                .any(|state| *state == JsonParseState::Array)
                             {
                                 // consume the character, but we didn't have any arrays
                                 // so we need to keep panicking.
@@ -261,7 +263,7 @@ impl<'i> JsonTokenizer<'i> {
                                 continue;
                             } else {
                                 while let Some(state) = self.states.pop() {
-                                    if let JsonTokenizerState::Array = state {
+                                    if let JsonParseState::Array = state {
                                         break;
                                     }
                                 }
@@ -287,7 +289,7 @@ impl<'i> JsonTokenizer<'i> {
                                 .states
                                 .iter()
                                 .rev()
-                                .any(|state| *state == JsonTokenizerState::Object)
+                                .any(|state| *state == JsonParseState::Object)
                             {
                                 // consume the character, but we didn't have any arrays
                                 // so we need to keep panicking.
@@ -295,7 +297,7 @@ impl<'i> JsonTokenizer<'i> {
                                 continue;
                             } else {
                                 while let Some(state) = self.states.pop() {
-                                    if let JsonTokenizerState::Object = state {
+                                    if let JsonParseState::Object = state {
                                         break;
                                     }
                                 }
@@ -316,10 +318,7 @@ impl<'i> JsonTokenizer<'i> {
                         }
                         ',' => {
                             if !self.states.iter().any(|state| {
-                                matches!(
-                                    state,
-                                    JsonTokenizerState::Array | JsonTokenizerState::Object
-                                )
+                                matches!(state, JsonParseState::Array | JsonParseState::Object)
                             }) {
                                 self.next_char();
                                 continue;
@@ -327,15 +326,15 @@ impl<'i> JsonTokenizer<'i> {
 
                             while let Some(state) = self.states.pop() {
                                 match state {
-                                    JsonTokenizerState::Array => {
-                                        self.states.push(JsonTokenizerState::Array);
+                                    JsonParseState::Array => {
+                                        self.states.push(JsonParseState::Array);
                                         break;
                                     }
-                                    JsonTokenizerState::Object => {
-                                        self.states.push(JsonTokenizerState::Object);
-                                        self.states.push(JsonTokenizerState::Value);
-                                        self.states.push(JsonTokenizerState::KeyValuePairColon);
-                                        self.states.push(JsonTokenizerState::KeyValuePairKey);
+                                    JsonParseState::Object => {
+                                        self.states.push(JsonParseState::Object);
+                                        self.states.push(JsonParseState::Value);
+                                        self.states.push(JsonParseState::KeyValuePairColon);
+                                        self.states.push(JsonParseState::KeyValuePairKey);
                                         break;
                                     }
                                     _ => {}
@@ -396,11 +395,11 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                         )));
                     }
                     self.match_whitespace();
-                    self.states.push(JsonTokenizerState::Value);
+                    self.states.push(JsonParseState::Value);
                 }
                 Some(state) => {
                     match state {
-                        JsonTokenizerState::Value => {
+                        JsonParseState::Value => {
                             self.match_whitespace();
                             match self.chars.peek() {
                                 None => {
@@ -413,11 +412,11 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                 }
                                 Some(ch) => {
                                     if !self.states.is_empty() {
-                                        self.states.push(JsonTokenizerState::AfterValue);
+                                        self.states.push(JsonParseState::AfterValue);
                                     }
                                     match ch.1 {
                                         '{' => {
-                                            self.states.push(JsonTokenizerState::Object);
+                                            self.states.push(JsonParseState::Object);
                                             self.next_char();
                                             let span = Span {
                                                 start: self.current_position.clone(),
@@ -429,7 +428,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             }));
                                         }
                                         '[' => {
-                                            self.states.push(JsonTokenizerState::Array);
+                                            self.states.push(JsonParseState::Array);
                                             self.next_char();
                                             let start = self.current_position.clone();
                                             let span = Span {
@@ -492,7 +491,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
 
                                             // re-push value back onto the stack, removing AfterValue
                                             self.states.pop();
-                                            self.states.push(JsonTokenizerState::Value);
+                                            self.states.push(JsonParseState::Value);
                                             return Some(Err(JsonParseErr::UnexpectedCharacters(
                                                 self.recover_in_panic_mode(),
                                             )));
@@ -501,7 +500,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                 }
                             }
                         }
-                        JsonTokenizerState::Object => {
+                        JsonParseState::Object => {
                             self.match_whitespace();
                             if self.match_char('}') {
                                 return Some(Ok(JsonToken {
@@ -514,9 +513,9 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                             }
 
                             // need to find the colon + value next. Put them on the stack!
-                            self.states.push(JsonTokenizerState::Object);
-                            self.states.push(JsonTokenizerState::Value);
-                            self.states.push(JsonTokenizerState::KeyValuePairColon);
+                            self.states.push(JsonParseState::Object);
+                            self.states.push(JsonParseState::Value);
+                            self.states.push(JsonParseState::KeyValuePairColon);
 
                             let token_result = self.match_string();
                             let token = match token_result {
@@ -531,7 +530,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
 
                             return Some(Ok(token));
                         }
-                        JsonTokenizerState::KeyValuePairColon => {
+                        JsonParseState::KeyValuePairColon => {
                             self.match_whitespace();
                             if self.match_char(':') {
                                 return Some(Ok(JsonToken {
@@ -547,7 +546,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                 )));
                             }
                         }
-                        JsonTokenizerState::KeyValuePairKey => {
+                        JsonParseState::KeyValuePairKey => {
                             self.match_whitespace();
 
                             let token_result = self.match_string();
@@ -563,7 +562,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
 
                             return Some(Ok(token));
                         }
-                        JsonTokenizerState::AfterValue => {
+                        JsonParseState::AfterValue => {
                             self.match_whitespace();
                             let start = self.current_position.clone();
                             if self.match_char(',') {
@@ -581,10 +580,10 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                     .last()
                                     .expect("states to include at least 1 value")
                                 {
-                                    JsonTokenizerState::Object => {
-                                        self.states.push(JsonTokenizerState::Value);
-                                        self.states.push(JsonTokenizerState::KeyValuePairColon);
-                                        self.states.push(JsonTokenizerState::KeyValuePairKey);
+                                    JsonParseState::Object => {
+                                        self.states.push(JsonParseState::Value);
+                                        self.states.push(JsonParseState::KeyValuePairColon);
+                                        self.states.push(JsonParseState::KeyValuePairKey);
                                         return Some(Ok(JsonToken {
                                             span: Span {
                                                 start: self.current_position.clone(),
@@ -593,8 +592,8 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             kind: JsonTokenKind::Comma,
                                         }));
                                     }
-                                    JsonTokenizerState::Array => {
-                                        self.states.push(JsonTokenizerState::Value);
+                                    JsonParseState::Array => {
+                                        self.states.push(JsonParseState::Value);
                                         return Some(Ok(JsonToken {
                                             span: Span {
                                                 start,
@@ -611,7 +610,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                 }
                             }
                         }
-                        JsonTokenizerState::Array => {
+                        JsonParseState::Array => {
                             self.match_whitespace();
                             if self.match_char(']') {
                                 return Some(Ok(JsonToken {
@@ -623,8 +622,8 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                 }));
                             }
 
-                            self.states.push(JsonTokenizerState::Array);
-                            self.states.push(JsonTokenizerState::Value);
+                            self.states.push(JsonParseState::Array);
+                            self.states.push(JsonParseState::Value);
                         }
                     }
                 }
@@ -706,16 +705,6 @@ pub(crate) enum JsonTokenKind {
     Null,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum JsonTokenizerState {
-    Object,
-    Array,
-    KeyValuePairColon,
-    KeyValuePairKey,
-    Value,
-    AfterValue,
-}
-
 #[derive(Debug, Clone)]
 pub(crate) enum JsonParseErr {
     UnexpectedEOF,
@@ -739,9 +728,8 @@ impl Display for JsonParseErr {
             }
             JsonParseErr::UnexpectedCharacters(span) => {
                 result.push_str(&format!(
-                    "Found unexpected character at {}. Entered panic mode, resynchronizing at {}", 
-                    span.start,
-                    span.end
+                    "Found unexpected character at {}. Entered panic mode, resynchronizing at {}",
+                    span.start, span.end
                 ));
             }
             JsonParseErr::TrailingComma(position) => {

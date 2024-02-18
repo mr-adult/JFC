@@ -1,7 +1,8 @@
 mod tokenizer;
 use tokenizer::{JsonParseErr, JsonTokenKind, JsonTokenizer};
+mod parser;
 
-use std::{borrow::Cow, collections::HashMap, error::Error, str::FromStr};
+use std::error::Error;
 
 pub struct FormatOptions<'a> {
     /// Compact mode removes all whitespace
@@ -204,154 +205,14 @@ pub fn format(json: &str, options: Option<FormatOptions<'_>>) -> (String, Vec<Bo
     )
 }
 
-#[derive(Clone, Debug)]
-pub enum JsonValue<'i> {
-    Null,
-    Boolean(bool),
-    Number(Box<JsonNumber<'i>>),
-    String(Box<JsonString<'i>>),
-    Array(Vec<JsonValue<'i>>),
-    Object(HashMap<&'i str, JsonValue<'i>>),
-}
-
-#[derive(Clone, Debug)]
-pub struct JsonNumber<'i> {
-    source: &'i str,
-}
-
-impl<'i> JsonNumber<'i> {
-    pub(crate) fn new(source: &'i str) -> Self {
-        Self { source }
-    }
-
-    pub fn parse<T>(&self) -> Result<T, <T as FromStr>::Err>
-    where
-        T: FromStr,
-    {
-        self.source.parse::<T>()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct JsonString<'i> {
-    source: &'i str,
-    cow: Option<Cow<'i, str>>,
-}
-
-impl<'i> JsonString<'i> {
-    pub(crate) fn new(source: &'i str) -> Self {
-        Self {
-            source,
-            cow: Self::escape(source),
-        }
-    }
-
-    pub fn raw(&self) -> &str {
-        self.source
-    }
-
-    pub fn parsed(&self) -> &Option<Cow<'i, str>> {
-        &self.cow
-    }
-
-    /// Handles escaping characters from the string. If the string
-    /// is not a valid JSON string, returns None. If the string is
-    /// parsed without issue, returns Some() with the Cow containing
-    /// the escaped string.
-    pub fn escape(source: &str) -> Option<Cow<'_, str>> {
-        let mut cow = Cow::Borrowed(source);
-
-        let mut chars = source.char_indices().peekable();
-        loop {
-            let ch = chars.next();
-            match ch {
-                None => return Some(cow),
-                Some((i, ch)) => {
-                    if ch == '\\' {
-                        let mut string = match cow {
-                            Cow::Borrowed(_) => source[..i].to_string(),
-                            Cow::Owned(string) => string,
-                        };
-
-                        match chars.next() {
-                            None => return None,
-                            Some((_, next_ch)) => {
-                                let ch_to_add = match next_ch {
-                                    '"' => '"',
-                                    '\\' => '\\',
-                                    '/' => '/',
-                                    'b' => '\u{0008}',
-                                    'f' => '\u{000c}',
-                                    'n' => '\n',
-                                    'r' => '\r',
-                                    't' => '\t',
-                                    'u' => {
-                                        let mut code = String::with_capacity(4);
-                                        let mut is_valid_unicode_escape = true;
-
-                                        for _ in 0..4 {
-                                            match chars.peek() {
-                                                Some((_, ch)) => {
-                                                    if ch.is_ascii_hexdigit() {
-                                                        code.push(chars.next().unwrap().1);
-                                                    } else {
-                                                        is_valid_unicode_escape = false;
-                                                        string.push_str("\\u");
-                                                        string.push_str(&code);
-                                                        break;
-                                                    }
-                                                }
-                                                _ => {
-                                                    is_valid_unicode_escape = false;
-                                                    string.push_str("\\u");
-                                                    string.push_str(&code);
-                                                    break;
-                                                }
-                                            }
-                                        }
-
-                                        if is_valid_unicode_escape {
-                                            match u32::from_str_radix(&code, 16) {
-                                                Ok(parsed) => match char::from_u32(parsed) {
-                                                    Some(ch) => string.push(ch),
-                                                    None => {
-                                                        string.push_str("\\u");
-                                                        string.push_str(&code);
-                                                    }
-                                                },
-                                                Err(_) => {
-                                                    string.push_str("\\u");
-                                                    string.push_str(&code);
-                                                }
-                                            }
-                                        }
-
-                                        // We're doing custom additions to the string, so no
-                                        // need to pass a character to the outer loop
-                                        cow = Cow::Owned(string);
-                                        continue;
-                                    }
-                                    _ => return None,
-                                };
-                                string.push(ch_to_add);
-                                cow = Cow::Owned(string)
-                            }
-                        }
-                    } else if ch.is_control() {
-                        return None;
-                    } else {
-                        match cow {
-                            Cow::Borrowed(_) => {}
-                            Cow::Owned(mut string) => {
-                                string.push(ch);
-                                cow = Cow::Owned(string);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum JsonParseState {
+    Object,
+    Array,
+    KeyValuePairColon,
+    KeyValuePairKey,
+    Value,
+    AfterValue,
 }
 
 #[cfg(test)]
@@ -362,8 +223,8 @@ mod tests {
     };
 
     use crate::{
+        parser::JsonString,
         tokenizer::{JsonParseErr, JsonTokenizer},
-        JsonString,
     };
 
     // #[test]
