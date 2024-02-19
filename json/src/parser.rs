@@ -527,53 +527,6 @@ impl<'json> JsonParser<'json> {
     }
 }
 
-pub struct StringStore<'s> {
-    strings: Option<*mut StoredString>,
-    all_strings: HashSet<&'s String>,
-    _phantom: PhantomData<&'s ()>,
-}
-
-impl<'s> StringStore<'s> {
-    pub fn new() -> Self {
-        Self {
-            strings: None,
-            all_strings: HashSet::new(),
-            _phantom: PhantomData,
-        }
-    }
-
-    fn push(&mut self, str: String) -> &'s String {
-        let ptr = &mut StoredString {
-            str,
-            next: match self.strings {
-                None => None,
-                Some(ptr) => Some(unsafe { Box::from_raw(ptr) }),
-            },
-        } as *mut StoredString;
-
-        self.all_strings
-            .insert(unsafe { &(*ptr).str } as &'s String);
-        self.strings = Some(ptr);
-        unsafe { &(*ptr).str }
-    }
-}
-
-impl<'s> Drop for StringStore<'s> {
-    fn drop(&mut self) {
-        match self.strings {
-            None => {}
-            Some(ptr) => {
-                unsafe { drop(Box::from_raw(ptr)) };
-            }
-        };
-    }
-}
-
-struct StoredString {
-    str: String,
-    next: Option<Box<StoredString>>,
-}
-
 enum ValueInProgress<'json> {
     Null,
     Bool(bool),

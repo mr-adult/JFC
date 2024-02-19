@@ -1,5 +1,5 @@
 mod tokenizer;
-use parser::{JsonParser, StringStore, Value};
+use parser::{JsonParser, Value};
 use tokenizer::{JsonParseErr, JsonTokenKind, JsonTokenizer};
 mod parser;
 
@@ -449,6 +449,7 @@ mod tests {
         false,
         null,
         "hello world!",
+        2.312812e-1283,
         {},
         {
             "key": null,
@@ -457,12 +458,13 @@ mod tests {
             "key4": "hello, world!",
             "key5": [],
             "key6": {}
+            "key7": 2.312812e-1283,
         }
     ]
 }"#;
 
         let (output, _) = super::parse(input);
-        assert_eq!(r#"{"list":[true,false,null,"hello world!",{},{"key":null,"key2":true,"key3":false,"key4":"hello, world!","key5":[],"key6":{}}]}"#, output.to_string());
+        assert_eq!(r#"{"list":[true,false,null,"hello world!",{},{"key":null,"key2":true,"key3":false,"key4":"hello, world!","key5":[],"key6":{},"key7":2.312812e-1283}]}"#, output.to_string());
     }
 
     #[test]
