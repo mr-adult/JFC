@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    tokenizer::{JsonParseErr, JsonToken, JsonTokenKind, JsonTokenizer},
+    tokenizer::{JsonParseErr, JsonToken, JsonTokenKind, JsonTokenizer, Position, Span},
     JsonParseState,
 };
 
@@ -15,7 +15,6 @@ static DEFAULT_KEY_COW: Cow<'static, str> = Cow::Borrowed(&DEFAULT_KEY);
 
 pub(crate) struct JsonParser<'json> {
     tokenizer: JsonTokenizer<'json>,
-    string_store: &'json mut StringStore<'json>,
     json: &'json str,
     lookahead: Option<JsonToken>,
     states: Vec<JsonParseState>,
@@ -24,23 +23,19 @@ pub(crate) struct JsonParser<'json> {
 }
 
 impl<'json> JsonParser<'json> {
-    fn new(json: &'json str, string_store: &'json mut StringStore<'json>) -> Self {
+    fn new(json: &'json str) -> Self {
         Self {
             tokenizer: JsonTokenizer::new(json),
-            string_store,
             json,
             lookahead: None,
-            states: Vec::new(),
+            states: vec![JsonParseState::Value],
             values_being_built: Vec::new(),
             errs: Vec::new(),
         }
     }
 
-    pub(crate) fn parse(
-        json: &'json str,
-        string_store: &'json mut StringStore<'json>,
-    ) -> (Value<'json>, Vec<JsonParseErr>) {
-        Self::new(json, string_store).parse_internal()
+    pub(crate) fn parse(json: &'json str) -> (Value<'json>, Vec<JsonParseErr>) {
+        Self::new(json).parse_internal()
     }
 
     fn parse_internal(mut self) -> (Value<'json>, Vec<JsonParseErr>) {
@@ -48,7 +43,21 @@ impl<'json> JsonParser<'json> {
             match self.states.pop() {
                 None => {
                     self.match_token(JsonTokenKind::Comma);
-                    self.states.push(JsonParseState::Value);
+                    if self.states.is_empty() {
+                        match self.next_token() {
+                            None => {
+                                return (
+                                    self.unwind_full_value_stack()
+                                        .unwrap_or_else(|| Value::Null),
+                                    self.errs,
+                                )
+                            }
+                            Some(token) => {
+                                self.lookahead = Some(token);
+                                self.states.push(JsonParseState::Value);
+                            }
+                        }
+                    }
                 }
                 Some(state) => {
                     match state {
@@ -70,14 +79,17 @@ impl<'json> JsonParser<'json> {
                                             self.values_being_built.push(ValueInProgress::Object(
                                                 ObjectInProgress::new(),
                                             ));
+
+                                            self.states.push(JsonParseState::Object);
                                         }
                                         JsonTokenKind::ArrayStart => {
                                             self.values_being_built
                                                 .push(ValueInProgress::Array(Vec::new()));
+                                            self.states.push(JsonParseState::Array);
                                         }
                                         JsonTokenKind::String => {
                                             self.values_being_built.push(ValueInProgress::String(
-                                                JsonString::new(&self.json[token.span.as_range()]),
+                                                JsonString::new(self.json, token.span),
                                             ));
                                             // We just pushed a value on, so this should never fail
                                             assert!(self.unwind_value_stack_once(), "BUG: Expected value to be on the stack since one was just added.");
@@ -139,9 +151,8 @@ impl<'json> JsonParser<'json> {
                             if let Some(str_token) = self.match_token(JsonTokenKind::String) {
                                 match self.values_being_built.pop() {
                                     Some(ValueInProgress::Object(mut obj)) => {
-                                        obj.active_key = Some(JsonString::new(
-                                            &self.json[str_token.span.as_range()],
-                                        ));
+                                        obj.active_key =
+                                            Some(JsonString::new(self.json, str_token.span));
                                         self.values_being_built.push(ValueInProgress::Object(obj));
                                     }
                                     None
@@ -196,35 +207,62 @@ impl<'json> JsonParser<'json> {
         }
     }
 
-    fn pop_object(&mut self) -> Option<Value<'json>> {
+    fn pop_object(&mut self) {
         if !self
             .values_being_built
             .iter()
             .rev()
             .any(|val| matches!(val, ValueInProgress::Object(_)))
         {
-            return None;
+            return;
         }
 
-        todo!()
+        loop {
+            match self.values_being_built.pop() {
+                None => break,
+                Some(ValueInProgress::Object(obj)) => {
+                    self.values_being_built.push(ValueInProgress::Object(obj));
+                    self.unwind_value_stack_once();
+                    break;
+                }
+                Some(other_val) => {
+                    self.values_being_built.push(other_val);
+                    self.unwind_value_stack_once();
+                }
+            }
+        }
     }
 
-    fn pop_array(&mut self) -> Option<Value<'json>> {
+    fn pop_array(&mut self) {
         if !self
             .values_being_built
             .iter()
             .rev()
-            .any(|val| matches!(val, ValueInProgress::Object(_)))
+            .any(|val| matches!(val, ValueInProgress::Array(_)))
         {
-            return None;
+            return;
         }
 
-        todo!()
+        loop {
+            match self.values_being_built.pop() {
+                None => break,
+                Some(ValueInProgress::Array(vec)) => {
+                    self.values_being_built.push(ValueInProgress::Array(vec));
+                    self.unwind_value_stack_once();
+                    break;
+                }
+                Some(other) => {
+                    self.values_being_built.push(other);
+                    self.unwind_value_stack_once();
+                }
+            }
+        }
     }
 
     fn unwind_full_value_stack(&mut self) -> Option<Value<'json>> {
         loop {
-            if !self.unwind_value_stack_once() {
+            self.unwind_value_stack_once();
+            if self.values_being_built.len() <= 1 {
                 break;
             }
         }
@@ -243,8 +281,7 @@ impl<'json> JsonParser<'json> {
         if let Some(top) = self.values_being_built.pop() {
             match self.values_being_built.pop() {
                 None => {
-                    self.values_being_built
-                        .push(ValueInProgress::Array(vec![top.into()]));
+                    self.values_being_built.push(top);
                     return true;
                 }
                 Some(new_top) => {
@@ -262,19 +299,44 @@ impl<'json> JsonParser<'json> {
 
                             let mut key_for_map = key;
                             if obj.map.contains_key(&key_for_map) {
+                                if key_for_map.span.is_some() {
+                                    self.errs.push(JsonParseErr::DuplicateObjectKeys(
+                                        match obj
+                                            .map
+                                            .get_key_value(&key_for_map)
+                                            .unwrap()
+                                            .0
+                                            .span
+                                            .as_ref()
+                                        {
+                                            None => Position::default(),
+                                            Some(span) => span.start.clone(),
+                                        },
+                                        match key_for_map.span.as_ref() {
+                                            None => Position::default(),
+                                            Some(span) => span.start.clone(),
+                                        },
+                                    ));
+                                }
                                 let mut counter: u64 = 0;
                                 // most of the time this should take < 10 iterations,
                                 // so only allocate space for 1 ascii digit.
                                 let mut ident =
                                     String::with_capacity(key_for_map.cow.as_ref().len() + 1);
+                                // TODO: Handle quotes correctly.
+                                ident.push_str(key_for_map.cow.as_ref());
                                 loop {
                                     let counter_str = counter.to_string();
                                     ident.push_str(&counter_str);
-                                    if !obj.map.contains_key(&JsonString::new(&ident)) {
-                                        key_for_map =
-                                            JsonString::new(self.string_store.push(ident));
+                                    key_for_map = JsonString::owned(ident);
+                                    if !obj.map.contains_key(&key_for_map) {
                                         break;
                                     }
+
+                                    ident = match key_for_map.cow {
+                                        Cow::Borrowed(str) => str.to_string(),
+                                        Cow::Owned(string) => string,
+                                    };
 
                                     for _ in counter_str.chars() {
                                         ident.pop();
@@ -283,32 +345,16 @@ impl<'json> JsonParser<'json> {
                                 }
                             }
 
-                            obj.map.insert(key_for_map, top.into());
+                            obj.insert(key_for_map, top.into());
                             self.values_being_built.push(ValueInProgress::Object(obj));
                             return true;
                         }
-                        ValueInProgress::Null => {
-                            todo!("Right now, I've implemented the simple form of this. Ideally, I would like to unwind the stack here.");
+                        ValueInProgress::Null
+                        | ValueInProgress::Bool(_)
+                        | ValueInProgress::String(_)
+                        | ValueInProgress::Number(_) => {
                             self.values_being_built
-                                .push(ValueInProgress::Array(vec![top.into(), Value::Null]));
-                            return true;
-                        }
-                        ValueInProgress::Bool(bool) => {
-                            todo!("Right now, I've implemented the simple form of this. Ideally, I would like to unwind the stack here.");
-                            self.values_being_built
-                                .push(ValueInProgress::Array(vec![top.into(), Value::Bool(bool)]));
-                            return true;
-                        }
-                        ValueInProgress::String(str) => {
-                            todo!("Right now, I've implemented the simple form of this. Ideally, I would like to unwind the stack here.");
-                            self.values_being_built
-                                .push(ValueInProgress::Array(vec![top.into(), Value::String(str)]));
-                            return true;
-                        }
-                        ValueInProgress::Number(num) => {
-                            todo!("Right now, I've implemented the simple form of this. Ideally, I would like to unwind the stack here.");
-                            self.values_being_built
-                                .push(ValueInProgress::Array(vec![top.into(), Value::Number(num)]));
+                                .push(ValueInProgress::Array(vec![top.into(), new_top.into()]));
                             return true;
                         }
                     }
@@ -390,12 +436,38 @@ impl<'json> JsonParser<'json> {
                             }
                         }
                     }
-                    JsonTokenKind::Null
-                    | JsonTokenKind::Number
-                    | JsonTokenKind::String
-                    | JsonTokenKind::True
-                    | JsonTokenKind::False
-                    | JsonTokenKind::Colon => {}
+                    JsonTokenKind::Null => {
+                        self.values_being_built.push(ValueInProgress::Null);
+                        self.unwind_value_stack_once();
+                        break;
+                    }
+                    JsonTokenKind::Number => {
+                        self.values_being_built
+                            .push(ValueInProgress::Number(JsonNumber::new(
+                                &self.json[token.span.as_range()],
+                            )));
+                        self.unwind_value_stack_once();
+                        break;
+                    }
+                    JsonTokenKind::String => {
+                        self.values_being_built
+                            .push(ValueInProgress::String(JsonString::new(
+                                self.json, token.span,
+                            )));
+                        self.unwind_value_stack_once();
+                        break;
+                    }
+                    JsonTokenKind::True => {
+                        self.values_being_built.push(ValueInProgress::Bool(true));
+                        self.unwind_value_stack_once();
+                        break;
+                    }
+                    JsonTokenKind::False => {
+                        self.values_being_built.push(ValueInProgress::Bool(false));
+                        self.unwind_value_stack_once();
+                        break;
+                    }
+                    JsonTokenKind::Colon => {}
                 },
             }
         }
@@ -434,7 +506,8 @@ impl<'json> JsonParser<'json> {
                         // defer to string parser to handle
                         | JsonParseErr::InvalidUnicodeEscapeSequence(_)
                         // defer to number parser to handle
-                        | JsonParseErr::IllegalLeading0(_) => {
+                        | JsonParseErr::IllegalLeading0(_)
+                        | JsonParseErr::DuplicateObjectKeys(_, _) => {
                             self.errs.push(err);
                         }
                         // We want these sequences to show up in the output,
@@ -525,12 +598,16 @@ impl<'json> Into<Value<'json>> for ValueInProgress<'json> {
 
 struct ObjectInProgress<'json> {
     active_key: Option<JsonString<'json>>,
+    keys_in_found_order: Vec<Cow<'json, str>>,
     map: HashMap<JsonString<'json>, Value<'json>>,
 }
 
-impl<'json> Into<HashMap<JsonString<'json>, Value<'json>>> for ObjectInProgress<'json> {
-    fn into(self) -> HashMap<JsonString<'json>, Value<'json>> {
-        self.map
+impl<'json> Into<Object<'json>> for ObjectInProgress<'json> {
+    fn into(self) -> Object<'json> {
+        Object {
+            map: self.map,
+            keys_in_found_order: self.keys_in_found_order,
+        }
     }
 }
 
@@ -538,8 +615,23 @@ impl<'json> ObjectInProgress<'json> {
     fn new() -> Self {
         Self {
             active_key: None,
+            keys_in_found_order: Vec::new(),
             map: HashMap::new(),
         }
+    }
+
+    fn insert(&mut self, key: JsonString<'json>, value: Value<'json>) {
+        self.keys_in_found_order.push(key.cow.to_owned());
+        if self.map.contains_key(&key) {
+            let mut new_keys = Vec::with_capacity(self.keys_in_found_order.capacity());
+            for found in self.keys_in_found_order.iter() {
+                if found.as_ref() == key.cow.as_ref() {
+                    continue;
+                }
+                new_keys.push(found);
+            }
+        }
+        self.map.insert(key, value);
     }
 }
 
@@ -549,23 +641,34 @@ pub enum Value<'json> {
     Number(JsonNumber<'json>),
     String(JsonString<'json>),
     Array(Vec<Value<'json>>),
-    Object(HashMap<JsonString<'json>, Value<'json>>),
+    Object(Object<'json>),
+}
+
+pub struct Object<'json> {
+    map: HashMap<JsonString<'json>, Value<'json>>,
+    keys_in_found_order: Vec<Cow<'json, str>>,
 }
 
 impl<'json> Value<'json> {
     pub fn to_string(&self) -> String {
         let mut result = String::new();
-        self.to_string_helper(&mut result, false, 0);
+        self.to_string_helper(&mut result, false, 0, false);
         result
     }
 
     pub fn to_string_pretty(&self) -> String {
         let mut result = String::new();
-        self.to_string_helper(&mut result, true, 0);
+        self.to_string_helper(&mut result, true, 0, false);
         result
     }
 
-    fn to_string_helper(&self, buf: &mut String, pretty: bool, indent_level: usize) {
+    fn to_string_helper(
+        &self,
+        buf: &mut String,
+        pretty: bool,
+        indent_level: usize,
+        indent_complex_value: bool,
+    ) {
         match self {
             Self::Null => {
                 buf.push_str("null");
@@ -584,8 +687,10 @@ impl<'json> Value<'json> {
                 buf.push_str(&str.cow);
             }
             Self::Array(vec) => {
-                if pretty {
-                    buf.push('\n');
+                if pretty && indent_complex_value {
+                    if !buf.is_empty() {
+                        buf.push('\n');
+                    }
                     for _ in 0..indent_level {
                         buf.push(' ');
                         buf.push(' ');
@@ -593,23 +698,21 @@ impl<'json> Value<'json> {
                 }
                 buf.push('[');
 
-                for item in vec {
+                for (i, item) in vec.iter().enumerate() {
+                    if i != 0 {
+                        buf.push(',');
+                    }
                     if pretty {
+                        buf.push('\n');
                         for _ in 0..indent_level + 1 {
                             buf.push(' ');
                             buf.push(' ');
                         }
                     }
-                    item.to_string_helper(buf, pretty, indent_level + 1);
-                    buf.push(',');
-                    if pretty {
-                        buf.push('\n');
-                    }
+                    item.to_string_helper(buf, pretty, indent_level + 1, true);
                 }
-                // pop that last ','
-                buf.pop();
-                if pretty {
-                    buf.pop();
+
+                if pretty && vec.len() > 0 {
                     buf.push('\n');
                     for _ in 0..indent_level {
                         buf.push(' ');
@@ -619,8 +722,8 @@ impl<'json> Value<'json> {
 
                 buf.push(']');
             }
-            Self::Object(map) => {
-                if pretty {
+            Self::Object(obj) => {
+                if pretty && indent_complex_value {
                     buf.push('\n');
                     for _ in 0..indent_level {
                         buf.push(' ');
@@ -628,34 +731,35 @@ impl<'json> Value<'json> {
                     }
                 }
                 buf.push('{');
-                for kvp in map {
+                for (i, cow) in obj.keys_in_found_order.iter().enumerate() {
+                    if i != 0 {
+                        buf.push(',');
+                    }
                     if pretty {
-                        for _ in 0..indent_level {
+                        buf.push('\n');
+                        for _ in 0..indent_level + 1 {
                             buf.push(' ');
                             buf.push(' ');
                         }
                     }
-                    buf.push_str(&kvp.0.cow);
+                    buf.push_str(&cow);
                     buf.push(':');
                     if pretty {
                         buf.push(' ');
                     }
-                    kvp.1.to_string_helper(buf, pretty, indent_level + 1);
-                    buf.push(',');
-                    if pretty {
-                        buf.push('\n');
-                    }
+
+                    let value = obj.map.get(&JsonString::from_cow(cow.clone())).expect("BUG: values in the keys in found order vec should always be in the object hashmap as well.");
+                    value.to_string_helper(buf, pretty, indent_level + 1, false);
                 }
-                // pop that last ','
-                buf.pop();
-                if pretty {
-                    buf.pop();
+
+                if pretty && obj.keys_in_found_order.len() > 0 {
                     buf.push('\n');
                     for _ in 0..indent_level {
                         buf.push(' ');
                         buf.push(' ');
                     }
                 }
+
                 buf.push('}')
             }
         }
@@ -682,27 +786,53 @@ impl<'json> JsonNumber<'json> {
 
 #[derive(Clone, Debug)]
 pub struct JsonString<'json> {
-    source: &'json str,
+    original_json: Cow<'json, str>,
+    span: Option<Span>,
     cow: Cow<'json, str>,
 }
 
 impl<'json> JsonString<'json> {
-    pub(crate) fn new(source: &'json str) -> Self {
+    pub(crate) fn new(original_json: &'json str, span: Span) -> Self {
+        let range = span.as_range();
         Self {
-            source,
-            cow: Self::escape(source),
+            original_json: Cow::Borrowed(original_json),
+            span: Some(span),
+            cow: Self::escape(&original_json[range]),
         }
     }
 
-    fn new_unchecked(source: &'json str) -> Self {
+    pub(crate) fn owned(source: String) -> Self {
         Self {
-            source,
-            cow: Cow::Borrowed(source),
+            original_json: Cow::Owned(source.clone()),
+            span: None,
+            cow: Cow::Owned(source),
+        }
+    }
+
+    fn new_unchecked(original_json: &'json str, span: Span) -> Self {
+        let range = span.as_range();
+        Self {
+            original_json: Cow::Borrowed(original_json),
+            span: Some(span),
+            cow: Cow::Borrowed(&original_json[range]),
+        }
+    }
+
+    /// for internal use only. This constructor does not have 
+    /// the same guarantees as the other constructors
+    fn from_cow(cow: Cow<'json, str>) -> Self {
+        Self {
+            original_json: Cow::Borrowed(""),
+            span: None,
+            cow: cow,
         }
     }
 
     pub(crate) fn raw(&self) -> &str {
-        self.source
+        match self.span.as_ref() {
+            None => &self.original_json[..],
+            Some(span) => &self.original_json[span.as_range()],
+        }
     }
 
     pub(crate) fn parsed(&self) -> &Cow<'json, str> {
@@ -832,7 +962,8 @@ impl<'json> Eq for JsonString<'json> {}
 impl<'json> Default for JsonString<'json> {
     fn default() -> Self {
         Self {
-            source: DEFAULT_KEY,
+            original_json: DEFAULT_KEY_COW.clone(),
+            span: None,
             cow: DEFAULT_KEY_COW.clone(),
         }
     }

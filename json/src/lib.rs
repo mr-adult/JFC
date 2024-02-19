@@ -204,9 +204,12 @@ pub fn format(json: &str, options: Option<FormatOptions<'_>>) -> (String, Vec<Bo
     )
 }
 
-pub fn parse<'json>(json: &'json str, string_store: &'json mut StringStore<'json>) -> (Value<'json>, Vec<Box<dyn Error>>) {
-    let (value, errs) = JsonParser::parse(json, string_store);
-    
+pub fn parse<'json> (
+    json: &'json str,
+) -> (Value<'json>, Vec<Box<dyn Error>>)
+{
+    let (value, errs) = JsonParser::parse(json);
+
     (
         value,
         errs.into_iter()
@@ -233,7 +236,7 @@ mod tests {
     };
 
     use crate::{
-        parser::{JsonString, StringStore},
+        parser::JsonString,
         tokenizer::{JsonParseErr, JsonTokenizer},
         FormatOptions,
     };
@@ -303,6 +306,9 @@ mod tests {
                 },
             }
         }
+
+        let output = super::parse(str).0.to_string_pretty();
+        println!("{}", output);
     }
 
     #[test]
@@ -409,5 +415,63 @@ mod tests {
         let input = "test\"";
         let (output, _) = super::format(input, None);
         assert_eq!("test\"", output);
+    }
+
+    #[test]
+    fn parses_valid_json() {
+        let input = "[[[[[]]]]]";
+        let (output, _) = super::parse(input);
+        assert_eq!("[[[[[]]]]]", output.to_string());
+        
+        let input = "{\"key\":{\"key\":{\"key\":{\"key\":{}}}}}";
+        let (output, _) = super::parse(input);
+        assert_eq!("{\"key\":{\"key\":{\"key\":{\"key\":{}}}}}", output.to_string());
+
+        let input = "\"test\"";
+        let (output, _) = super::parse(input);
+        assert_eq!("\"test\"", output.to_string());
+
+        let input = "true";
+        let (output, _) = super::parse(input);
+        assert_eq!("true", output.to_string());
+
+        let input = "false";
+        let (output, _) = super::parse(input);
+        assert_eq!("false", output.to_string());
+
+        let input = "null";
+        let (output, _) = super::parse(input);
+        assert_eq!("null", output.to_string());
+
+        let input = r#"{
+    "list": [
+        true,
+        false,
+        null,
+        "hello world!",
+        {},
+        {
+            "key": null,
+            "key2": true,
+            "key3": false,
+            "key4": "hello, world!",
+            "key5": [],
+            "key6": {}
+        }
+    ]
+}"#;
+
+        let (output, _) = super::parse(input);
+        assert_eq!(r#"{"list":[true,false,null,"hello world!",{},{"key":null,"key2":true,"key3":false,"key4":"hello, world!","key5":[],"key6":{}}]}"#, output.to_string());
+    }
+
+    #[test]
+    fn handles_key_collisions() {
+        let input = r#"{"key": "value", "key": "test", "key0": "other_test"}"#;
+        let (output, errs) = super::parse(input);
+        for err in errs {
+            println!("{}", err);
+        }
+        assert_eq!("", output.to_string());
     }
 }

@@ -639,13 +639,44 @@ pub(crate) struct JsonToken {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Span {
-    start: Position,
+    pub (crate) start: Position,
     end: Position,
 }
 
 impl Span {
     pub(crate) fn as_range(&self) -> Range<usize> {
         self.start.raw..self.end.raw
+    }
+
+    pub (crate) fn full(source: &str) -> Self {
+        let mut end = Position {
+            raw: 0,
+            line: 0,
+            col: 1,
+        };
+
+        let mut prev_was_new_line = false;
+
+        for (i, ch) in source.char_indices() {
+            if ch == '\n' {
+                prev_was_new_line = true;
+                end.col += 1;
+            } else if prev_was_new_line {
+                end.line += 1;
+                end.col = 1;
+            } else {
+                end.col += 1;
+            }
+            end.raw = i;
+        }
+        Self {
+            start: Position {
+                raw: 0,
+                line: 0,
+                col: 1,
+            },
+            end,
+        }
     }
 }
 
@@ -712,6 +743,7 @@ pub(crate) enum JsonParseErr {
     TrailingComma(Position),
     InvalidUnicodeEscapeSequence(Span),
     UnclosedString(Position),
+    DuplicateObjectKeys(Position, Position),
 }
 
 impl Error for JsonParseErr {}
@@ -742,6 +774,12 @@ impl Display for JsonParseErr {
             JsonParseErr::UnclosedString(position) => {
                 result.push_str("Found unclosed string at ");
                 result.push_str(&format!("{}", position));
+            }
+            JsonParseErr::DuplicateObjectKeys(start1, start2) => {
+                result.push_str("Found duplicate object keys at ");
+                result.push_str(&format!("{}", start1));
+                result.push_str(" and ");
+                result.push_str(&format!("{}", start2));
             }
         }
         f.write_str(&result)?;
