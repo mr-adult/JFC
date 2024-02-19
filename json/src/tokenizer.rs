@@ -127,10 +127,12 @@ impl<'json> JsonTokenizer<'json> {
         self.match_char('-');
 
         let mut leading_0_err = None;
-        if self.match_char('0') && self.match_char_if(|ch| ch.is_ascii_digit()) {
-            leading_0_err = Some(JsonParseErr::IllegalLeading0(
-                self.current_position.minus(1),
-            ));
+        if self.match_char('0') {
+            if self.match_char_if(|ch| ch.is_ascii_digit()) {
+                leading_0_err = Some(JsonParseErr::IllegalLeading0(
+                    self.current_position.minus(1),
+                ));
+            }
         } else if !self.match_char_if(|ch| ch.is_ascii_digit()) {
             // We found only a dash... need to panic.
             let mut span = self.recover_in_panic_mode();
@@ -639,7 +641,7 @@ pub(crate) struct JsonToken {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Span {
-    pub (crate) start: Position,
+    pub(crate) start: Position,
     end: Position,
 }
 
@@ -648,7 +650,7 @@ impl Span {
         self.start.raw..self.end.raw
     }
 
-    pub (crate) fn full(source: &str) -> Self {
+    pub(crate) fn full(source: &str) -> Self {
         let mut end = Position {
             raw: 0,
             line: 0,
