@@ -807,7 +807,7 @@ impl<'json> JsonString<'json> {
                 Some((i, ch)) => {
                     if ch == '\\' {
                         let mut string = match cow {
-                            Cow::Borrowed(_) => source[..i - 1].to_string(),
+                            Cow::Borrowed(_) => source[..i].to_string(),
                             Cow::Owned(string) => string,
                         };
 
@@ -918,12 +918,34 @@ impl<'json> JsonString<'json> {
                         }
 
                         let mut string = match cow {
-                            Cow::Borrowed(_) => source[..i - 1].to_string(),
+                            Cow::Borrowed(_) => source[..i].to_string(),
                             Cow::Owned(string) => string,
                         };
                         string.push_str("\\\"");
                         cow = Cow::Owned(string);
+                    } else if ch == '\n' {
+                        let mut string = match cow {
+                            Cow::Borrowed(_) => source[..i].to_string(),
+                            Cow::Owned(string) => string,
+                        };
+
+                        string.push_str("\\n");
+                        cow = Cow::Owned(string);
                     } else if ch.is_control() {
+                        cow = match cow {
+                            Cow::Owned(mut string) => {
+                                if let Some(b'"') = string.bytes().last() {
+                                    string.pop();
+                                }
+                                Cow::Owned(string)
+                            }
+                            Cow::Borrowed(mut str) => {
+                                if let Some(b'"') = str.as_bytes().last() {
+                                    str = &str[..i];
+                                }
+                                Cow::Borrowed(str)
+                            }
+                        };
                         continue;
                     } else {
                         match cow {
