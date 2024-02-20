@@ -111,6 +111,7 @@ raw mode, please submit an issue to https://github.com/mr-adult/JFC.
         let err_out = errs_to_report.into_iter().map(|err| format!("{}", err)).collect::<Vec<_>>().join("\n");
         let mut stderr = stderr().lock();
         stderr.write_all(err_out.as_bytes()).ok();
+        stderr.write_all(&[b'\n', b'\n']).ok();
         stderr.flush().ok();
     }
     
