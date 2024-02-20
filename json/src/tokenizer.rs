@@ -710,7 +710,7 @@ impl Default for Position {
     fn default() -> Self {
         Self {
             line: 1,
-            col: 0,
+            col: 1,
             raw: 0,
         }
     }
