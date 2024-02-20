@@ -6,11 +6,10 @@ use std::{
 };
 
 use clap::{command, Arg, ArgAction};
-use toy_json_formatter::{format, FormatOptions};
+use toy_json_formatter::{format, parse, FormatOptions};
 
 fn main() -> Result<(), ExitCode> {
     let arg_matches = command!()
-        .about("A tool for unfucking malformed JSON")
         .arg(
             Arg::new("compact")
                 .long("compact")
@@ -87,23 +86,32 @@ raw mode, please submit an issue to https://github.com/mr-adult/JFC.
             }
     };
 
+    let errs_to_report;
     if *raw {
         let (output, errs) = format(&input, Some(FormatOptions { compact: *compact, indent_str }));
         let mut stdout = stdout().lock();
         stdout.write_all(output.as_bytes()).ok();
         stdout.write(&[b'\n', b'\n']).ok();
         stdout.flush().ok();
-        if !errs.is_empty() {
-            let err_out = errs.into_iter().map(|err| format!("{}", err)).collect::<Vec<_>>().join("\n");
-            let mut stderr = stderr().lock();
-            stderr.write_all(err_out.as_bytes()).ok();
-            stderr.flush().ok();
-        }
+        errs_to_report = errs;
     } else {
+        let (output, errs) = parse(&input);
+        let mut stdout = stdout().lock();
+        if *compact {
+            stdout.write_all(output.to_string().as_bytes()).ok();
+        } else {
+            stdout.write_all(output.to_string_pretty().as_bytes()).ok();
+        }
+        stdout.write(&[b'\n', b'\n']).ok();
+        stdout.flush().ok();
+        errs_to_report = errs;
+    }
+
+    if !errs_to_report.is_empty() {
+        let err_out = errs_to_report.into_iter().map(|err| format!("{}", err)).collect::<Vec<_>>().join("\n");
         let mut stderr = stderr().lock();
-        stderr.write_all(b"Only raw mode has been implemented.").ok();
+        stderr.write_all(err_out.as_bytes()).ok();
         stderr.flush().ok();
-        return Err(ExitCode::FAILURE);
     }
     
     Ok(())
