@@ -85,7 +85,7 @@ checksum = "acbf1af155f9b9ef647e42cdc158db4b64a1b61f743629225fde6f3e0be2a7c7"
 
 [[package]]
 name = "jfc"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "clap",
  "toy-json-formatter",
@@ -99,7 +99,7 @@ checksum = "5ee073c9e4cd00e28217186dbe12796d692868f432bf2e97ee73bed0c56dfa01"
 
 [[package]]
 name = "toy-json-formatter"
-version = "0.3.1"
+version = "0.3.3"
 
 [[package]]
 name = "utf8parse"
