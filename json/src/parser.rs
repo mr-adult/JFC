@@ -322,9 +322,9 @@ impl<'json> JsonParser<'json> {
                                 // most of the time this should take < 10 iterations,
                                 // so only allocate space for 1 ascii digit.
                                 let mut ident =
-                                    String::with_capacity(key_for_map.cow.as_ref().len() + 1);
+                                    String::with_capacity(key_for_map.sanitized.as_ref().len() + 1);
                                 // TODO: Handle quotes correctly.
-                                ident.push_str(key_for_map.cow.as_ref());
+                                ident.push_str(key_for_map.sanitized.as_ref());
                                 loop {
                                     let counter_str = counter.to_string();
                                     ident.push_str(&counter_str);
@@ -333,7 +333,7 @@ impl<'json> JsonParser<'json> {
                                         break;
                                     }
 
-                                    ident = match key_for_map.cow {
+                                    ident = match key_for_map.sanitized {
                                         Cow::Borrowed(str) => str.to_string(),
                                         Cow::Owned(string) => string,
                                     };
@@ -354,7 +354,7 @@ impl<'json> JsonParser<'json> {
                         | ValueInProgress::String(_)
                         | ValueInProgress::Number(_) => {
                             self.values_being_built
-                                .push(ValueInProgress::Array(vec![top.into(), new_top.into()]));
+                                .push(ValueInProgress::Array(vec![new_top.into(), top.into()]));
                             return true;
                         }
                     }
@@ -574,11 +574,11 @@ impl<'json> ObjectInProgress<'json> {
     }
 
     fn insert(&mut self, key: JsonString<'json>, value: Value<'json>) {
-        self.keys_in_found_order.push(key.cow.to_owned());
+        self.keys_in_found_order.push(key.sanitized.to_owned());
         if self.map.contains_key(&key) {
             let mut new_keys = Vec::with_capacity(self.keys_in_found_order.capacity());
             for found in self.keys_in_found_order.iter() {
-                if found.as_ref() == key.cow.as_ref() {
+                if found.as_ref() == key.sanitized.as_ref() {
                     continue;
                 }
                 new_keys.push(found);
@@ -605,23 +605,17 @@ pub struct Object<'json> {
 impl<'json> Value<'json> {
     pub fn to_string(&self) -> String {
         let mut result = String::new();
-        self.to_string_helper(&mut result, false, 0, false);
+        self.to_string_helper(&mut result, false, 0);
         result
     }
 
     pub fn to_string_pretty(&self) -> String {
         let mut result = String::new();
-        self.to_string_helper(&mut result, true, 0, false);
+        self.to_string_helper(&mut result, true, 0);
         result
     }
 
-    fn to_string_helper(
-        &self,
-        buf: &mut String,
-        pretty: bool,
-        indent_level: usize,
-        indent_complex_value: bool,
-    ) {
+    fn to_string_helper(&self, buf: &mut String, pretty: bool, indent_level: usize) {
         match self {
             Self::Null => {
                 buf.push_str("null");
@@ -634,21 +628,14 @@ impl<'json> Value<'json> {
                 }
             }
             Self::Number(num) => {
-                buf.push_str(num.source);
+                buf.push_str(num.sanitized);
             }
             Self::String(str) => {
-                buf.push_str(&str.cow);
+                buf.push('"');
+                buf.push_str(&str.sanitized);
+                buf.push('"');
             }
             Self::Array(vec) => {
-                if pretty && indent_complex_value {
-                    if !buf.is_empty() {
-                        buf.push('\n');
-                    }
-                    for _ in 0..indent_level {
-                        buf.push(' ');
-                        buf.push(' ');
-                    }
-                }
                 buf.push('[');
 
                 for (i, item) in vec.iter().enumerate() {
@@ -662,7 +649,7 @@ impl<'json> Value<'json> {
                             buf.push(' ');
                         }
                     }
-                    item.to_string_helper(buf, pretty, indent_level + 1, true);
+                    item.to_string_helper(buf, pretty, indent_level + 1);
                 }
 
                 if pretty && vec.len() > 0 {
@@ -676,14 +663,8 @@ impl<'json> Value<'json> {
                 buf.push(']');
             }
             Self::Object(obj) => {
-                if pretty && indent_complex_value {
-                    buf.push('\n');
-                    for _ in 0..indent_level {
-                        buf.push(' ');
-                        buf.push(' ');
-                    }
-                }
                 buf.push('{');
+
                 for (i, cow) in obj.keys_in_found_order.iter().enumerate() {
                     if i != 0 {
                         buf.push(',');
@@ -695,14 +676,16 @@ impl<'json> Value<'json> {
                             buf.push(' ');
                         }
                     }
+                    buf.push('"');
                     buf.push_str(&cow);
+                    buf.push('"');
                     buf.push(':');
                     if pretty {
                         buf.push(' ');
                     }
 
                     let value = obj.map.get(&JsonString::from_cow(cow.clone())).expect("BUG: values in the keys in found order vec should always be in the object hashmap as well.");
-                    value.to_string_helper(buf, pretty, indent_level + 1, false);
+                    value.to_string_helper(buf, pretty, indent_level + 1);
                 }
 
                 if pretty && obj.keys_in_found_order.len() > 0 {
@@ -722,11 +705,15 @@ impl<'json> Value<'json> {
 #[derive(Clone, Debug)]
 pub struct JsonNumber<'json> {
     source: &'json str,
+    sanitized: &'json str,
 }
 
 impl<'json> JsonNumber<'json> {
     pub(crate) fn new(source: &'json str) -> Self {
-        Self { source }
+        Self {
+            source,
+            sanitized: Self::sanitize(source),
+        }
     }
 
     pub(crate) fn parse<T>(&self) -> Result<T, <T as FromStr>::Err>
@@ -735,13 +722,39 @@ impl<'json> JsonNumber<'json> {
     {
         self.source.parse::<T>()
     }
+
+    fn sanitize(source: &str) -> &str {
+        let mut chars = source.chars().peekable();
+        let mut num_matched_zeroes = 0;
+        while let Some('0') = chars.peek() {
+            chars.next();
+            num_matched_zeroes += 1;
+        }
+
+        if num_matched_zeroes == 0 {
+            return source;
+        }
+
+        match chars.peek() {
+            Some('.' | 'e' | 'E') => {
+                return &source[num_matched_zeroes - 1..];
+            }
+            Some('0'..='9') => {
+                return &source[num_matched_zeroes..];
+            }
+            _ => {
+                return source;
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct JsonString<'json> {
     original_json: Cow<'json, str>,
     span: Option<Span>,
-    cow: Cow<'json, str>,
+    parsed: Cow<'json, str>,
+    sanitized: Cow<'json, str>,
 }
 
 impl<'json> JsonString<'json> {
@@ -750,15 +763,8 @@ impl<'json> JsonString<'json> {
         Self {
             original_json: Cow::Borrowed(original_json),
             span: Some(span),
-            cow: Self::escape(&original_json[range]),
-        }
-    }
-
-    pub(crate) fn owned(source: String) -> Self {
-        Self {
-            original_json: Cow::Owned(source.clone()),
-            span: None,
-            cow: Cow::Owned(source),
+            parsed: Self::escape(&original_json[range.clone()]),
+            sanitized: Self::sanitize(&original_json[range]),
         }
     }
 
@@ -767,17 +773,30 @@ impl<'json> JsonString<'json> {
         Self {
             original_json: Cow::Borrowed(original_json),
             span: Some(span),
-            cow: Cow::Borrowed(&original_json[range]),
+            sanitized: Cow::Borrowed(&original_json[range.clone()]),
+            parsed: Cow::Borrowed(&original_json[range]),
         }
     }
 
-    /// for internal use only. This constructor does not have 
+    /// for internal use only. This constructor does not have
     /// the same guarantees as the other constructors
     fn from_cow(cow: Cow<'json, str>) -> Self {
         Self {
             original_json: Cow::Borrowed(""),
             span: None,
-            cow: cow,
+            sanitized: cow.clone(),
+            parsed: cow,
+        }
+    }
+
+    /// for internal use only. This constructor does not have
+    /// the same guarantees as the other constructors
+    pub(crate) fn owned(source: String) -> Self {
+        Self {
+            original_json: Cow::Owned(source.clone()),
+            span: None,
+            sanitized: Cow::Owned(source.clone()),
+            parsed: Cow::Owned(source),
         }
     }
 
@@ -788,33 +807,48 @@ impl<'json> JsonString<'json> {
         }
     }
 
-    pub(crate) fn parsed(&self) -> &Cow<'json, str> {
-        &self.cow
-    }
-
     /// Handles escaping characters from the string. If the string
     /// is not a valid JSON string, returns None. If the string is
     /// parsed without issue, returns Some() with the Cow containing
     /// the escaped string.
     pub(crate) fn escape(source: &str) -> Cow<'_, str> {
+        Self::parse(source, true)
+    }
+
+    fn sanitize(source: &str) -> Cow<'_, str> {
+        Self::parse(source, false)
+    }
+
+    fn parse(mut source: &str, replace_escape_chars: bool) -> Cow<'_, str> {
+        let mut chars = source.char_indices().peekable();
+
+        // Remove the quote at the beginning (if there is one)
+        if let Some((_, ch)) = chars.peek() {
+            if *ch == '"' {
+                source = &source[1..];
+                chars.next();
+            }
+        }
+
         let mut cow = Cow::Borrowed(source);
 
-        let mut chars = source.char_indices().peekable();
         loop {
             let ch = chars.next();
             match ch {
-                None => return cow,
+                None => break,
                 Some((i, ch)) => {
                     if ch == '\\' {
                         let mut string = match cow {
-                            Cow::Borrowed(_) => source[..i].to_string(),
+                            Cow::Borrowed(_) => source[..i - 1].to_string(),
                             Cow::Owned(string) => string,
                         };
 
                         match chars.next() {
                             None => {
                                 string.push('\\');
-                                return Cow::Owned(string);
+                                string.push('\\');
+                                cow = Cow::Owned(string);
+                                break;
                             }
                             Some((_, next_ch)) => {
                                 let ch_to_add = match next_ch {
@@ -837,14 +871,14 @@ impl<'json> JsonString<'json> {
                                                         code.push(chars.next().unwrap().1);
                                                     } else {
                                                         is_valid_unicode_escape = false;
-                                                        string.push_str("\\u");
+                                                        string.push_str("\\\\u");
                                                         string.push_str(&code);
                                                         break;
                                                     }
                                                 }
                                                 _ => {
                                                     is_valid_unicode_escape = false;
-                                                    string.push_str("\\u");
+                                                    string.push_str("\\\\u");
                                                     string.push_str(&code);
                                                     break;
                                                 }
@@ -854,14 +888,21 @@ impl<'json> JsonString<'json> {
                                         if is_valid_unicode_escape {
                                             match u32::from_str_radix(&code, 16) {
                                                 Ok(parsed) => match char::from_u32(parsed) {
-                                                    Some(ch) => string.push(ch),
+                                                    Some(ch) => {
+                                                        if replace_escape_chars {
+                                                            string.push(ch);
+                                                        } else {
+                                                            string.push_str("\\u");
+                                                            string.push_str(&code);
+                                                        }
+                                                    }
                                                     None => {
-                                                        string.push_str("\\u");
+                                                        string.push_str("\\\\u");
                                                         string.push_str(&code);
                                                     }
                                                 },
                                                 Err(_) => {
-                                                    string.push_str("\\u");
+                                                    string.push_str("\\\\u");
                                                     string.push_str(&code);
                                                 }
                                             }
@@ -872,15 +913,48 @@ impl<'json> JsonString<'json> {
                                         cow = Cow::Owned(string);
                                         continue;
                                     }
-                                    _ => {
+                                    ch => {
                                         string.push('\\');
-                                        return Cow::Owned(string);
+                                        string.push('\\');
+                                        string.push(ch);
+                                        cow = Cow::Owned(string);
+                                        continue;
                                     }
                                 };
+
+                                if !replace_escape_chars {
+                                    string.push('\\')
+                                }
                                 string.push(ch_to_add);
                                 cow = Cow::Owned(string)
                             }
                         }
+                    } else if ch == '"' {
+                        // don't escape the ending quote
+                        if i == source.len() {
+                            cow = match cow {
+                                Cow::Owned(mut string) => {
+                                    if let Some(b'"') = string.bytes().last() {
+                                        string.pop();
+                                    }
+                                    Cow::Owned(string)
+                                }
+                                Cow::Borrowed(mut str) => {
+                                    if let Some(b'"') = str.as_bytes().last() {
+                                        str = &str[..str.len() - 1];
+                                    }
+                                    Cow::Borrowed(str)
+                                }
+                            };
+                            continue;
+                        }
+
+                        let mut string = match cow {
+                            Cow::Borrowed(_) => source[..i - 1].to_string(),
+                            Cow::Owned(string) => string,
+                        };
+                        string.push_str("\\\"");
+                        cow = Cow::Owned(string);
                     } else if ch.is_control() {
                         continue;
                     } else {
@@ -895,18 +969,20 @@ impl<'json> JsonString<'json> {
                 }
             }
         }
+
+        cow
     }
 }
 
 impl<'json> std::hash::Hash for JsonString<'json> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.cow.hash(state);
+        self.sanitized.hash(state);
     }
 }
 
 impl<'json> PartialEq for JsonString<'json> {
     fn eq(&self, other: &Self) -> bool {
-        self.cow.eq(&other.cow)
+        self.parsed.eq(&other.parsed)
     }
 }
 
@@ -917,7 +993,8 @@ impl<'json> Default for JsonString<'json> {
         Self {
             original_json: DEFAULT_KEY_COW.clone(),
             span: None,
-            cow: DEFAULT_KEY_COW.clone(),
+            parsed: DEFAULT_KEY_COW.clone(),
+            sanitized: DEFAULT_KEY_COW.clone(),
         }
     }
 }

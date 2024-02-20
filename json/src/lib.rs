@@ -309,6 +309,8 @@ mod tests {
 
         let output = super::parse(str).0.to_string_pretty();
         println!("{}", output);
+
+        println!("{}", super::parse("[true,[]]").0.to_string_pretty());
     }
 
     #[test]
@@ -470,10 +472,33 @@ mod tests {
     #[test]
     fn handles_key_collisions() {
         let input = r#"{"key": "value", "key": "test", "key0": "other_test"}"#;
-        let (output, errs) = super::parse(input);
-        for err in errs {
-            println!("{}", err);
-        }
-        assert_eq!("", output.to_string());
+        let (output, _) = super::parse(input);
+        assert_eq!("{\"key\":\"value\",\"key0\":\"test\",\"key00\":\"other_test\"}", output.to_string());
+    }
+
+    #[test]
+    fn double_escapes_bad_escape_sequences() {
+        let input = "\"\\h\\k\\u012\\\"\\u0020\"";
+        let (output, _) = super::parse(input);
+        assert_eq!("\"\\\\h\\\\k\\\\u012\\\"\\u0020\"", output.to_string());
+    }
+
+    #[test]
+    fn removes_leading_zeroes() {
+        let input = "00000000001.0123e-123";
+        let (output, _) = super::parse(input);
+        assert_eq!("1.0123e-123", output.to_string());
+
+        let input = "0000000000000.123";
+        let (output, _) = super::parse(input);
+        assert_eq!("0.123", output.to_string());
+
+        let input = "0000000000e-12";
+        let (output, _) = super::parse(input);
+        assert_eq!("0e-12", output.to_string());
+
+        let input = "0";
+        let (output, _) = super::parse(input);
+        assert_eq!("0", output.to_string());
     }
 }
