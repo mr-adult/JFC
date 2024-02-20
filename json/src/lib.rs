@@ -204,10 +204,7 @@ pub fn format(json: &str, options: Option<FormatOptions<'_>>) -> (String, Vec<Bo
     )
 }
 
-pub fn parse<'json> (
-    json: &'json str,
-) -> (Value<'json>, Vec<Box<dyn Error>>)
-{
+pub fn parse<'json>(json: &'json str) -> (Value<'json>, Vec<Box<dyn Error>>) {
     let (value, errs) = JsonParser::parse(json);
 
     (
@@ -242,6 +239,7 @@ mod tests {
     };
 
     // #[test]
+    #[allow(dead_code)]
     fn test_bench() {
         loop {
             println!("Enter your JSON:");
@@ -424,10 +422,13 @@ mod tests {
         let input = "[[[[[]]]]]";
         let (output, _) = super::parse(input);
         assert_eq!("[[[[[]]]]]", output.to_string());
-        
+
         let input = "{\"key\":{\"key\":{\"key\":{\"key\":{}}}}}";
         let (output, _) = super::parse(input);
-        assert_eq!("{\"key\":{\"key\":{\"key\":{\"key\":{}}}}}", output.to_string());
+        assert_eq!(
+            "{\"key\":{\"key\":{\"key\":{\"key\":{}}}}}",
+            output.to_string()
+        );
 
         let input = "\"test\"";
         let (output, _) = super::parse(input);
@@ -466,14 +467,20 @@ mod tests {
 }"#;
 
         let (output, _) = super::parse(input);
-        assert_eq!(r#"{"list":[true,false,null,"hello world!",{},{"key":null,"key2":true,"key3":false,"key4":"hello, world!","key5":[],"key6":{},"key7":2.312812e-1283}]}"#, output.to_string());
+        assert_eq!(
+            r#"{"list":[true,false,null,"hello world!",{},{"key":null,"key2":true,"key3":false,"key4":"hello, world!","key5":[],"key6":{},"key7":2.312812e-1283}]}"#,
+            output.to_string()
+        );
     }
 
     #[test]
     fn handles_key_collisions() {
         let input = r#"{"key": "value", "key": "test", "key0": "other_test"}"#;
         let (output, _) = super::parse(input);
-        assert_eq!("{\"key\":\"value\",\"key0\":\"test\",\"key00\":\"other_test\"}", output.to_string());
+        assert_eq!(
+            "{\"key\":\"value\",\"key0\":\"test\",\"key00\":\"other_test\"}",
+            output.to_string()
+        );
     }
 
     #[test]

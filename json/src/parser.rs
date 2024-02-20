@@ -1,9 +1,4 @@
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    marker::PhantomData,
-    str::FromStr,
-};
+use std::{borrow::Cow, collections::HashMap};
 
 use crate::{
     tokenizer::{JsonParseErr, JsonToken, JsonTokenKind, JsonTokenizer, Position, Span},
@@ -704,6 +699,7 @@ impl<'json> Value<'json> {
 
 #[derive(Clone, Debug)]
 pub struct JsonNumber<'json> {
+    #[allow(dead_code)]
     source: &'json str,
     sanitized: &'json str,
 }
@@ -714,13 +710,6 @@ impl<'json> JsonNumber<'json> {
             source,
             sanitized: Self::sanitize(source),
         }
-    }
-
-    pub(crate) fn parse<T>(&self) -> Result<T, <T as FromStr>::Err>
-    where
-        T: FromStr,
-    {
-        self.source.parse::<T>()
     }
 
     fn sanitize(source: &str) -> &str {
@@ -751,7 +740,6 @@ impl<'json> JsonNumber<'json> {
 
 #[derive(Clone, Debug)]
 pub struct JsonString<'json> {
-    original_json: Cow<'json, str>,
     span: Option<Span>,
     parsed: Cow<'json, str>,
     sanitized: Cow<'json, str>,
@@ -761,20 +749,9 @@ impl<'json> JsonString<'json> {
     pub(crate) fn new(original_json: &'json str, span: Span) -> Self {
         let range = span.as_range();
         Self {
-            original_json: Cow::Borrowed(original_json),
             span: Some(span),
             parsed: Self::escape(&original_json[range.clone()]),
             sanitized: Self::sanitize(&original_json[range]),
-        }
-    }
-
-    fn new_unchecked(original_json: &'json str, span: Span) -> Self {
-        let range = span.as_range();
-        Self {
-            original_json: Cow::Borrowed(original_json),
-            span: Some(span),
-            sanitized: Cow::Borrowed(&original_json[range.clone()]),
-            parsed: Cow::Borrowed(&original_json[range]),
         }
     }
 
@@ -782,7 +759,6 @@ impl<'json> JsonString<'json> {
     /// the same guarantees as the other constructors
     fn from_cow(cow: Cow<'json, str>) -> Self {
         Self {
-            original_json: Cow::Borrowed(""),
             span: None,
             sanitized: cow.clone(),
             parsed: cow,
@@ -793,17 +769,9 @@ impl<'json> JsonString<'json> {
     /// the same guarantees as the other constructors
     pub(crate) fn owned(source: String) -> Self {
         Self {
-            original_json: Cow::Owned(source.clone()),
             span: None,
             sanitized: Cow::Owned(source.clone()),
             parsed: Cow::Owned(source),
-        }
-    }
-
-    pub(crate) fn raw(&self) -> &str {
-        match self.span.as_ref() {
-            None => &self.original_json[..],
-            Some(span) => &self.original_json[span.as_range()],
         }
     }
 
@@ -991,7 +959,6 @@ impl<'json> Eq for JsonString<'json> {}
 impl<'json> Default for JsonString<'json> {
     fn default() -> Self {
         Self {
-            original_json: DEFAULT_KEY_COW.clone(),
             span: None,
             parsed: DEFAULT_KEY_COW.clone(),
             sanitized: DEFAULT_KEY_COW.clone(),

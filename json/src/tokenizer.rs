@@ -649,37 +649,6 @@ impl Span {
     pub(crate) fn as_range(&self) -> Range<usize> {
         self.start.raw..self.end.raw
     }
-
-    pub(crate) fn full(source: &str) -> Self {
-        let mut end = Position {
-            raw: 0,
-            line: 0,
-            col: 1,
-        };
-
-        let mut prev_was_new_line = false;
-
-        for (i, ch) in source.char_indices() {
-            if ch == '\n' {
-                prev_was_new_line = true;
-                end.col += 1;
-            } else if prev_was_new_line {
-                end.line += 1;
-                end.col = 1;
-            } else {
-                end.col += 1;
-            }
-            end.raw = i;
-        }
-        Self {
-            start: Position {
-                raw: 0,
-                line: 0,
-                col: 1,
-            },
-            end,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -693,6 +662,7 @@ impl Position {
     pub(crate) fn as_index(&self) -> usize {
         self.raw
     }
+
     /// this function assumes that you know the
     /// value is on the same line. It will panic
     /// if you subtract more than the number of
