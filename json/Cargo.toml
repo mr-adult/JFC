@@ -1,6 +1,6 @@
 [package]
 name = "toy-json-formatter"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 license = "GPL-3.0"
 description = "This is a JSON formatter that is built to be fault tolerant from the ground up. Its job is to take any input and do its best to parse it and format it as JSON."
