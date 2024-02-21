@@ -592,6 +592,31 @@ pub enum Value<'json> {
     Object(Object<'json>),
 }
 
+impl<'json> Value<'json> {
+    /// Retrieves all values from within this value recursively.
+    pub fn get_all_leaves_iter_mut(&mut self) -> impl Iterator<Item = &mut Value<'json>> {
+        let mut result = Vec::new();
+        match self {
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => result.push(self),
+            Value::Array(arr) => {
+                for item in arr.iter_mut() {
+                    for sub_value in item.get_all_leaves_iter_mut() {
+                        result.push(sub_value);
+                    }
+                }
+            }
+            Value::Object(obj) => {
+                for kvp in obj.map.iter_mut() {
+                    for sub_value in kvp.1.get_all_leaves_iter_mut() {
+                    result.push(sub_value);
+                    }
+                }
+            }
+        }
+        result.into_iter()
+    }
+}
+
 pub struct Object<'json> {
     map: HashMap<JsonString<'json>, Value<'json>>,
     keys_in_found_order: Vec<Cow<'json, str>>,
@@ -600,17 +625,29 @@ pub struct Object<'json> {
 impl<'json> Value<'json> {
     pub fn to_string(&self) -> String {
         let mut result = String::new();
-        self.to_string_helper(&mut result, false, 0);
+        self.to_string_helper(&mut result, false, 0, "  ");
         result
     }
 
     pub fn to_string_pretty(&self) -> String {
         let mut result = String::new();
-        self.to_string_helper(&mut result, true, 0);
+        self.to_string_helper(&mut result, true, 0, "  ");
         result
     }
 
-    fn to_string_helper(&self, buf: &mut String, pretty: bool, indent_level: usize) {
+    pub fn to_string_pretty_with_indent_str(&self, indent_str: &str) -> String {
+        let mut result = String::new();
+        self.to_string_helper(&mut result, true, 0, indent_str);
+        result
+    }
+
+    fn to_string_helper(
+        &self,
+        buf: &mut String,
+        pretty: bool,
+        indent_level: usize,
+        indent_str: &str,
+    ) {
         match self {
             Self::Null => {
                 buf.push_str("null");
@@ -640,18 +677,16 @@ impl<'json> Value<'json> {
                     if pretty {
                         buf.push('\n');
                         for _ in 0..indent_level + 1 {
-                            buf.push(' ');
-                            buf.push(' ');
+                            buf.push_str(indent_str);
                         }
                     }
-                    item.to_string_helper(buf, pretty, indent_level + 1);
+                    item.to_string_helper(buf, pretty, indent_level + 1, indent_str);
                 }
 
                 if pretty && vec.len() > 0 {
                     buf.push('\n');
                     for _ in 0..indent_level {
-                        buf.push(' ');
-                        buf.push(' ');
+                        buf.push_str(indent_str);
                     }
                 }
 
@@ -667,8 +702,7 @@ impl<'json> Value<'json> {
                     if pretty {
                         buf.push('\n');
                         for _ in 0..indent_level + 1 {
-                            buf.push(' ');
-                            buf.push(' ');
+                            buf.push_str(indent_str);
                         }
                     }
                     buf.push('"');
@@ -680,14 +714,13 @@ impl<'json> Value<'json> {
                     }
 
                     let value = obj.map.get(&JsonString::from_cow(cow.clone())).expect("BUG: values in the keys in found order vec should always be in the object hashmap as well.");
-                    value.to_string_helper(buf, pretty, indent_level + 1);
+                    value.to_string_helper(buf, pretty, indent_level + 1, indent_str);
                 }
 
                 if pretty && obj.keys_in_found_order.len() > 0 {
                     buf.push('\n');
                     for _ in 0..indent_level {
-                        buf.push(' ');
-                        buf.push(' ');
+                        buf.push_str(indent_str);
                     }
                 }
 
@@ -750,7 +783,7 @@ impl<'json> JsonString<'json> {
         let range = span.as_range();
         Self {
             span: Some(span),
-            parsed: Self::escape(&original_json[range.clone()]),
+            parsed: Self::unescape(&original_json[range.clone()]),
             sanitized: Self::sanitize(&original_json[range]),
         }
     }
@@ -775,11 +808,7 @@ impl<'json> JsonString<'json> {
         }
     }
 
-    /// Handles escaping characters from the string. If the string
-    /// is not a valid JSON string, returns None. If the string is
-    /// parsed without issue, returns Some() with the Cow containing
-    /// the escaped string.
-    pub(crate) fn escape(source: &str) -> Cow<'_, str> {
+    pub fn unescape(source: &str) -> Cow<'_, str> {
         Self::parse(source, true)
     }
 
@@ -805,154 +834,201 @@ impl<'json> JsonString<'json> {
             match ch {
                 None => break,
                 Some((i, ch)) => {
-                    if ch == '\\' {
-                        let mut string = match cow {
-                            Cow::Borrowed(_) => source[..i].to_string(),
-                            Cow::Owned(string) => string,
-                        };
+                    match ch {
+                        '\\' => {
+                            let mut string = match cow {
+                                Cow::Borrowed(_) => source[..if i > 0 { i - 1 } else { i }].to_string(),
+                                Cow::Owned(string) => string,
+                            };
 
-                        match chars.next() {
-                            None => {
-                                string.push('\\');
-                                string.push('\\');
-                                cow = Cow::Owned(string);
-                                break;
-                            }
-                            Some((_, next_ch)) => {
-                                let ch_to_add = match next_ch {
-                                    '"' => '"',
-                                    '\\' => '\\',
-                                    '/' => '/',
-                                    'b' => '\u{0008}',
-                                    'f' => '\u{000c}',
-                                    'n' => '\n',
-                                    'r' => '\r',
-                                    't' => '\t',
-                                    'u' => {
-                                        let mut code = String::with_capacity(4);
-                                        let mut is_valid_unicode_escape = true;
+                            match chars.next() {
+                                None => {
+                                    string.push('\\');
+                                    string.push('\\');
+                                    cow = Cow::Owned(string);
+                                    break;
+                                }
+                                Some((_, next_ch)) => {
+                                    let ch_to_add = match next_ch {
+                                        '"' => '"',
+                                        '\\' => '\\',
+                                        '/' => '/',
+                                        'b' => '\u{0008}',
+                                        'f' => '\u{000c}',
+                                        'n' => '\n',
+                                        'r' => '\r',
+                                        't' => '\t',
+                                        'u' => {
+                                            let mut code = String::with_capacity(4);
+                                            let mut is_valid_unicode_escape = true;
 
-                                        for _ in 0..4 {
-                                            match chars.peek() {
-                                                Some((_, ch)) => {
-                                                    if ch.is_ascii_hexdigit() {
-                                                        code.push(chars.next().unwrap().1);
-                                                    } else {
+                                            for _ in 0..4 {
+                                                match chars.peek() {
+                                                    Some((_, ch)) => {
+                                                        if ch.is_ascii_hexdigit() {
+                                                            code.push(chars.next().unwrap().1);
+                                                        } else {
+                                                            is_valid_unicode_escape = false;
+                                                            string.push_str("\\\\u");
+                                                            string.push_str(&code);
+                                                            break;
+                                                        }
+                                                    }
+                                                    _ => {
                                                         is_valid_unicode_escape = false;
                                                         string.push_str("\\\\u");
                                                         string.push_str(&code);
                                                         break;
                                                     }
                                                 }
-                                                _ => {
-                                                    is_valid_unicode_escape = false;
-                                                    string.push_str("\\\\u");
-                                                    string.push_str(&code);
-                                                    break;
-                                                }
                                             }
-                                        }
 
-                                        if is_valid_unicode_escape {
-                                            match u32::from_str_radix(&code, 16) {
-                                                Ok(parsed) => match char::from_u32(parsed) {
-                                                    Some(ch) => {
-                                                        if replace_escape_chars {
-                                                            string.push(ch);
-                                                        } else {
-                                                            string.push_str("\\u");
+                                            if is_valid_unicode_escape {
+                                                match u32::from_str_radix(&code, 16) {
+                                                    Ok(parsed) => match char::from_u32(parsed) {
+                                                        Some(ch) => {
+                                                            if replace_escape_chars {
+                                                                string.push(ch);
+                                                            } else {
+                                                                string.push_str("\\u");
+                                                                string.push_str(&code);
+                                                            }
+                                                        }
+                                                        None => {
+                                                            string.push_str("\\\\u");
                                                             string.push_str(&code);
                                                         }
-                                                    }
-                                                    None => {
+                                                    },
+                                                    Err(_) => {
                                                         string.push_str("\\\\u");
                                                         string.push_str(&code);
                                                     }
-                                                },
-                                                Err(_) => {
-                                                    string.push_str("\\\\u");
-                                                    string.push_str(&code);
                                                 }
                                             }
-                                        }
 
-                                        // We're doing custom additions to the string, so no
-                                        // need to pass a character to the outer loop
-                                        cow = Cow::Owned(string);
-                                        continue;
+                                            // We're doing custom additions to the string, so no
+                                            // need to pass a character to the outer loop
+                                            cow = Cow::Owned(string);
+                                            continue;
+                                        }
+                                        ch => {
+                                            string.push('\\');
+                                            string.push('\\');
+                                            string.push(ch);
+                                            cow = Cow::Owned(string);
+                                            continue;
+                                        }
+                                    };
+
+                                    if !replace_escape_chars {
+                                        string.push('\\');
+                                        string.push(next_ch);
+                                    } else {
+                                        string.push(ch_to_add);
                                     }
-                                    ch => {
-                                        string.push('\\');
-                                        string.push('\\');
-                                        string.push(ch);
-                                        cow = Cow::Owned(string);
-                                        continue;
+                                    cow = Cow::Owned(string)
+                                }
+                            }
+                        }
+                        '"' => {
+                            // don't escape the ending quote
+                            if i == source.len() {
+                                cow = match cow {
+                                    Cow::Owned(mut string) => {
+                                        if let Some(b'"') = string.bytes().last() {
+                                            string.pop();
+                                        }
+                                        Cow::Owned(string)
+                                    }
+                                    Cow::Borrowed(mut str) => {
+                                        if let Some(b'"') = str.as_bytes().last() {
+                                            str = &str[..str.len() - 1];
+                                        }
+                                        Cow::Borrowed(str)
                                     }
                                 };
-
-                                if !replace_escape_chars {
-                                    string.push('\\')
-                                }
-                                string.push(ch_to_add);
-                                cow = Cow::Owned(string)
+                                continue;
                             }
-                        }
-                    } else if ch == '"' {
-                        // don't escape the ending quote
-                        if i == source.len() {
-                            cow = match cow {
-                                Cow::Owned(mut string) => {
-                                    if let Some(b'"') = string.bytes().last() {
-                                        string.pop();
-                                    }
-                                    Cow::Owned(string)
-                                }
-                                Cow::Borrowed(mut str) => {
-                                    if let Some(b'"') = str.as_bytes().last() {
-                                        str = &str[..str.len() - 1];
-                                    }
-                                    Cow::Borrowed(str)
-                                }
+
+                            let mut string = match cow {
+                                Cow::Borrowed(_) => source[..i].to_string(),
+                                Cow::Owned(string) => string,
                             };
-                            continue;
+                            string.push_str("\\\"");
+                            cow = Cow::Owned(string);
                         }
-
-                        let mut string = match cow {
-                            Cow::Borrowed(_) => source[..i].to_string(),
-                            Cow::Owned(string) => string,
-                        };
-                        string.push_str("\\\"");
-                        cow = Cow::Owned(string);
-                    } else if ch == '\n' {
-                        let mut string = match cow {
-                            Cow::Borrowed(_) => source[..i].to_string(),
-                            Cow::Owned(string) => string,
-                        };
-
-                        string.push_str("\\n");
-                        cow = Cow::Owned(string);
-                    } else if ch.is_control() {
-                        cow = match cow {
-                            Cow::Owned(mut string) => {
-                                if let Some(b'"') = string.bytes().last() {
-                                    string.pop();
-                                }
-                                Cow::Owned(string)
+                        '\n' | '\u{0008}' | '\u{000c}' | '\r' | '\t' => {
+                            if replace_escape_chars {
+                                cow = match cow {
+                                    Cow::Borrowed(_) => Cow::Borrowed(&source[..i]),
+                                    Cow::Owned(mut string) => {
+                                        string.push(ch);
+                                        Cow::Owned(string)
+                                    }
+                                };
+                                continue;
                             }
-                            Cow::Borrowed(mut str) => {
-                                if let Some(b'"') = str.as_bytes().last() {
-                                    str = &str[..i];
+
+                            let mut string = match cow {
+                                Cow::Borrowed(_) => source[..i].to_string(),
+                                Cow::Owned(string) => string,
+                            };
+
+                            string.push('\\');
+                            string.push(match ch {
+                                '\u{0008}' => 'b',
+                                '\u{000c}' => 'f',
+                                '\n' => 'n',
+                                '\r' => 'r',
+                                '\t' => 't',
+                                _ => unreachable!(),
+                            });
+                            string.push_str("\\n");
+                            cow = Cow::Owned(string);
+                        }
+                        ch => {
+                            if ch.is_control() {
+                                if replace_escape_chars {
+                                    cow = match cow {
+                                        Cow::Borrowed(_) => Cow::Borrowed(&source[..i]),
+                                        Cow::Owned(mut string) => {
+                                            string.push(ch);
+                                            Cow::Owned(string)
+                                        }
+                                    };
+                                    continue;
                                 }
-                                Cow::Borrowed(str)
+
+                                cow = match cow {
+                                    Cow::Owned(mut string) => {
+                                        string.push_str("\\u");
+                                        let num_string = (ch as u32).to_string();
+                                        for _ in 0..(4 - num_string.len()) {
+                                            string.push('0');
+                                        }
+                                        string.push_str(&num_string);
+                                        Cow::Owned(string)
+                                    }
+                                    Cow::Borrowed(str) => {
+                                        let mut string = str.to_string();
+                                        string.push_str("\\u");
+                                        let num_string = (ch as u32).to_string();
+                                        for _ in 0..(4 - num_string.len()) {
+                                            string.push('0');
+                                        }
+                                        string.push_str(&num_string);
+                                        Cow::Owned(string)
+                                    }
+                                };
+                                continue;
                             }
-                        };
-                        continue;
-                    } else {
-                        match cow {
-                            Cow::Borrowed(_) => {}
-                            Cow::Owned(mut string) => {
-                                string.push(ch);
-                                cow = Cow::Owned(string);
+
+                            match cow {
+                                Cow::Borrowed(_) => {}
+                                Cow::Owned(mut string) => {
+                                    string.push(ch);
+                                    cow = Cow::Owned(string);
+                                }
                             }
                         }
                     }

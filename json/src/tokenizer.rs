@@ -10,7 +10,7 @@ pub(crate) struct JsonTokenizer<'json> {
     states: Vec<JsonParseState>,
     lookahead: Option<JsonToken>,
     unicode_escape_errs: VecDeque<JsonParseErr>,
-    current_position: Position,
+    current_position: Option<Position>,
 }
 
 impl<'json> JsonTokenizer<'json> {
@@ -22,7 +22,7 @@ impl<'json> JsonTokenizer<'json> {
             states,
             lookahead: None,
             unicode_escape_errs: VecDeque::with_capacity(0),
-            current_position: Position::default(),
+            current_position: None,
         }
     }
 
@@ -84,7 +84,7 @@ impl<'json> JsonTokenizer<'json> {
                                         let peeked = self.peek_position();
                                         self.unicode_escape_errs.push_back(
                                             JsonParseErr::InvalidUnicodeEscapeSequence(Span {
-                                                start: self.current_position.minus(i + 1),
+                                                start: self.get_current_position().minus(i + 1),
                                                 end: peeked,
                                             }),
                                         );
@@ -130,7 +130,7 @@ impl<'json> JsonTokenizer<'json> {
         if self.match_char('0') {
             if self.match_char_if(|ch| ch.is_ascii_digit()) {
                 leading_0_err = Some(JsonParseErr::IllegalLeading0(
-                    self.current_position.minus(1),
+                    self.get_current_position().minus(1),
                 ));
             }
         } else if !self.match_char_if(|ch| ch.is_ascii_digit()) {
@@ -203,13 +203,17 @@ impl<'json> JsonTokenizer<'json> {
 
     fn next_char(&mut self) -> Option<(usize, char)> {
         if let Some((i, ch)) = self.chars.next() {
-            if ch == '\n' {
-                self.current_position.line += 1;
-                self.current_position.col = 1;
-            } else {
-                self.current_position.col += 1;
+            if self.current_position.is_none() {
+                self.current_position = Some(Position::default());
             }
-            self.current_position.raw = i;
+
+            if ch == '\n' {
+                self.current_position.as_mut().unwrap().line += 1;
+                self.current_position.as_mut().unwrap().col = 1;
+            } else {
+                self.current_position.as_mut().unwrap().col += 1;
+            }
+            self.current_position.as_mut().unwrap().raw = i;
             Some((i, ch))
         } else {
             None
@@ -217,7 +221,7 @@ impl<'json> JsonTokenizer<'json> {
     }
 
     fn peek_position(&mut self) -> Position {
-        let mut result = self.current_position.clone();
+        let mut result = self.get_current_position();
         if let Some((i, ch)) = self.chars.peek() {
             if *ch == '\n' {
                 result.line += 1;
@@ -272,7 +276,7 @@ impl<'json> JsonTokenizer<'json> {
                                 self.next_char();
                                 self.lookahead = Some(JsonToken {
                                     span: Span {
-                                        start: self.current_position.clone(),
+                                        start: self.get_current_position(),
                                         end: self.peek_position(),
                                     },
                                     kind: JsonTokenKind::ArrayEnd,
@@ -280,7 +284,7 @@ impl<'json> JsonTokenizer<'json> {
 
                                 return Span {
                                     start,
-                                    end: self.current_position.clone(),
+                                    end: self.get_current_position(),
                                 };
                             }
                         }
@@ -305,7 +309,7 @@ impl<'json> JsonTokenizer<'json> {
                                 self.next_char();
                                 self.lookahead = Some(JsonToken {
                                     span: Span {
-                                        start: self.current_position.clone(),
+                                        start: self.get_current_position(),
                                         end: self.peek_position(),
                                     },
                                     kind: JsonTokenKind::ObjectEnd,
@@ -313,7 +317,7 @@ impl<'json> JsonTokenizer<'json> {
 
                                 return Span {
                                     start,
-                                    end: self.current_position.clone(),
+                                    end: self.get_current_position(),
                                 };
                             }
                         }
@@ -346,7 +350,7 @@ impl<'json> JsonTokenizer<'json> {
                             self.next_char();
                             self.lookahead = Some(JsonToken {
                                 span: Span {
-                                    start: self.current_position.clone(),
+                                    start: self.get_current_position(),
                                     end: self.peek_position(),
                                 },
                                 kind: JsonTokenKind::Comma,
@@ -354,7 +358,7 @@ impl<'json> JsonTokenizer<'json> {
 
                             return Span {
                                 start,
-                                end: self.current_position.clone(),
+                                end: self.get_current_position(),
                             };
                         }
                         _ => {
@@ -369,6 +373,13 @@ impl<'json> JsonTokenizer<'json> {
         Span {
             start,
             end: self.peek_position(),
+        }
+    }
+
+    fn get_current_position(&self) -> Position {
+        match &self.current_position {
+            None => Position::default(),
+            Some(pos) => pos.clone(),
         }
     }
 }
@@ -392,7 +403,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                     if self.match_char(',') {
                         // trailing commas are common. Make sure we don't choke on them.
                         return Some(Err(JsonParseErr::TrailingComma(
-                            self.current_position.clone(),
+                            self.get_current_position(),
                         )));
                     }
                     self.match_whitespace();
@@ -420,7 +431,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             self.states.push(JsonParseState::Object);
                                             self.next_char();
                                             let span = Span {
-                                                start: self.current_position.clone(),
+                                                start: self.get_current_position(),
                                                 end: self.peek_position(),
                                             };
                                             return Some(Ok(JsonToken {
@@ -431,7 +442,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                         '[' => {
                                             self.states.push(JsonParseState::Array);
                                             self.next_char();
-                                            let start = self.current_position.clone();
+                                            let start = self.get_current_position();
                                             let span = Span {
                                                 start,
                                                 end: self.peek_position(),
@@ -459,9 +470,9 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             return Some(self.match_number());
                                         }
                                         _ => {
-                                            let current_position = if self.current_position.raw == 0
+                                            let current_position = if self.current_position.is_none()
                                             {
-                                                self.current_position.clone()
+                                                Position::default()
                                             } else {
                                                 self.peek_position()
                                             };
@@ -514,7 +525,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                             if self.match_char('}') {
                                 return Some(Ok(JsonToken {
                                     span: Span {
-                                        start: self.current_position.clone(),
+                                        start: self.get_current_position(),
                                         end: self.peek_position(),
                                     },
                                     kind: JsonTokenKind::ObjectEnd,
@@ -533,7 +544,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                             if self.match_char(':') {
                                 return Some(Ok(JsonToken {
                                     span: Span {
-                                        start: self.current_position.clone(),
+                                        start: self.get_current_position(),
                                         end: self.peek_position(),
                                     },
                                     kind: JsonTokenKind::Colon,
@@ -562,9 +573,9 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                         }
                         JsonParseState::AfterValue => {
                             self.match_whitespace();
-                            let start = self.current_position.clone();
+                            let start = self.get_current_position();
                             if self.match_char(',') {
-                                let comma_position = self.current_position.clone();
+                                let comma_position = self.get_current_position();
                                 self.match_whitespace();
                                 if let Some((_, '}' | ']')) = self.chars.peek() {
                                     return Some(Err(
@@ -584,7 +595,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                         self.states.push(JsonParseState::KeyValuePairKey);
                                         return Some(Ok(JsonToken {
                                             span: Span {
-                                                start: self.current_position.clone(),
+                                                start: self.get_current_position(),
                                                 end: self.peek_position(),
                                             },
                                             kind: JsonTokenKind::Comma,
@@ -595,7 +606,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                         return Some(Ok(JsonToken {
                                             span: Span {
                                                 start,
-                                                end: self.current_position.clone(),
+                                                end: self.get_current_position(),
                                             },
                                             kind: JsonTokenKind::Comma,
                                         }));
@@ -616,7 +627,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                             if self.match_char(']') {
                                 return Some(Ok(JsonToken {
                                     span: Span {
-                                        start: self.current_position.clone(),
+                                        start: self.get_current_position(),
                                         end: self.peek_position(),
                                     },
                                     kind: JsonTokenKind::ArrayEnd,

@@ -1,7 +1,7 @@
 mod tokenizer;
 use parser::{JsonParser, Value};
 use tokenizer::{JsonParseErr, JsonTokenKind, JsonTokenizer};
-mod parser;
+pub mod parser;
 
 use std::error::Error;
 
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn escape_sequences() {
-        let str = JsonString::escape("\\\\\\u0020\\\"\\b\\f\\n\\t\\r");
+        let str = JsonString::unescape("\\\\\\u0020\\\"\\b\\f\\n\\t\\r");
         let expected = "\\ \"\u{0008}\u{000c}\n\t\r";
         assert_eq!(
             Cow::Owned::<'static, str>(expected.to_string()),
@@ -468,7 +468,7 @@ mod tests {
 
         let (output, _) = super::parse(input);
         assert_eq!(
-            r#"{"list":[true,false,null,"hello world!",{},{"key":null,"key2":true,"key3":false,"key4":"hello, world!","key5":[],"key6":{},"key7":2.312812e-1283}]}"#,
+            r#"{"list":[true,false,null,"hello world!",2.312812e-1283,{},{"key":null,"key2":true,"key3":false,"key4":"hello, world!","key5":[],"key6":{},"key7":2.312812e-1283}]}"#,
             output.to_string()
         );
     }
@@ -507,5 +507,12 @@ mod tests {
         let input = "0";
         let (output, _) = super::parse(input);
         assert_eq!("0", output.to_string());
+    }
+
+    #[test]
+    fn leaves_escape_sequences() {
+        let input = "\\\"\\\\\\/\\b\\n\\n\\r\\t\u{0000}";
+        let (output, _) = super::parse(input);
+        assert_eq!("\"\\\"\\\\\\/\\b\\n\\n\\r\\t\\u0000\"", output.to_string())
     }
 }
