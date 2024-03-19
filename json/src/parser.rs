@@ -837,7 +837,7 @@ impl<'json> JsonString<'json> {
                     match ch {
                         '\\' => {
                             let mut string = match cow {
-                                Cow::Borrowed(_) => source[..if i > 0 { i - 1 } else { i }].to_string(),
+                                Cow::Borrowed(_) => source[..i].to_string(),
                                 Cow::Owned(string) => string,
                             };
 
