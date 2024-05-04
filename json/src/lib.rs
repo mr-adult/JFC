@@ -513,6 +513,57 @@ mod tests {
     fn leaves_escape_sequences() {
         let input = "\\\"\\\\\\/\\b\\n\\n\\r\\t\u{0000}";
         let (output, _) = super::parse(input);
-        assert_eq!("\"\\\"\\\\\\/\\b\\n\\n\\r\\t\\u0000\"", output.to_string())
+        assert_eq!("\"\\\"\\\\\\/\\b\\n\\n\\r\\t\\u0000\"", output.to_string());
+
+        let input = "\"\\\\\"";
+        let (output, _) = super::parse(input);
+        let (_, errs) = super::parse(&output.to_string_pretty());
+        if !errs.is_empty() {
+            panic!("found error");
+        }
+    }
+
+    #[test]
+    fn to_string_on_escaped_strings() {
+        let input = "{ \"test\\\\string\": 1 }";
+        let (output, _) = super::parse(input);
+        println!("{}", output.to_string_pretty());
+    }
+
+    // #[test]
+    #[allow(unused)]
+    fn fuzzed() {
+        let fuzzer = json_fuzzer::fuzz();
+
+        for str in fuzzer {
+            if std::panic::catch_unwind(|| {
+                super::format(&str, None);
+            })
+            .is_err()
+            {
+                println!("FAILURE IN FORMAT. String: {}", &str);
+            }
+
+            if std::panic::catch_unwind(|| {
+                super::parse(&str);
+            })
+            .is_err()
+            {
+                println!("FAILURE IN PARSE. String: {}", &str);
+            }
+        }
+    }
+
+    #[test]
+    fn char_indices_test() {
+        println!("{}", "\u{009d}".len());
+        let str = "\u{009d} \u{009d}";
+        println!("{}", str.len());
+        println!("{}", str.char_indices().count());
+        for (i, ch) in str.char_indices() {
+            println!("{:?}, {:?}", i, ch);
+        }
+
+        super::parse("\"\u{009d} \u{faed4}\"");
     }
 }

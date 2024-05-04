@@ -11,5 +11,8 @@ documentation = "https://docs.rs/toy-json-formatter/latest/toy_json_formatter/"
 
 [dependencies]
 
+[dev-dependencies]
+json-fuzzer = { path = "../../json-fuzzer" }
+
 [features]
 default = []

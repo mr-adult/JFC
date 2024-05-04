@@ -653,7 +653,7 @@ pub(crate) struct JsonToken {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Span {
     pub(crate) start: Position,
-    end: Position,
+    pub(crate) end: Position,
 }
 
 impl Span {
@@ -664,9 +664,9 @@ impl Span {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Position {
-    line: usize,
-    col: usize,
-    raw: usize,
+    pub(crate) line: usize,
+    pub(crate) col: usize,
+    pub(crate) raw: usize,
 }
 
 impl Position {
