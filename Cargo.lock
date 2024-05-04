@@ -102,7 +102,7 @@ dependencies = [
 
 [[package]]
 name = "jfc"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "clap",
  "toy-json-formatter",
@@ -165,7 +165,7 @@ checksum = "5ee073c9e4cd00e28217186dbe12796d692868f432bf2e97ee73bed0c56dfa01"
 
 [[package]]
 name = "toy-json-formatter"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "json-fuzzer",
 ]
