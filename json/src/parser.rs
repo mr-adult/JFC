@@ -976,7 +976,7 @@ impl<'json> JsonString<'json> {
                             // don't escape the ending quote. Quotes are ascii, so -1 is safe
                             if i == source.len() - 1 {
                                 match cow {
-                                    Cow::Borrowed(str) => cow = Cow::Borrowed(&str[..i]),
+                                    Cow::Borrowed(str) => cow = Cow::Borrowed(str),
                                     Cow::Owned(string) => cow = Cow::Owned(string),
                                 }
                                 continue;
@@ -1016,7 +1016,6 @@ impl<'json> JsonString<'json> {
                                 '\t' => 't',
                                 _ => unreachable!(),
                             });
-                            string.push_str("\\n");
                             cow = Cow::Owned(string);
                         }
                         ch => {
