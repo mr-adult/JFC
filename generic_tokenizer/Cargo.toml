@@ -2,3 +2,9 @@
 name = "generic_tokenizer"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "A generic tokenizer that tracks line and column numbers as it goes."
+authors = ["Adam Fortune"]
+repository = "https://github.com/mr-adult/JFC"
+keywords = ["generic", "tokenizer", "line", "column"]
+documentation = "https://docs.rs/generic_tokenizer/latest/generic_tokenizer/"
