@@ -2,5 +2,6 @@
 resolver = "2"
 members = [
     "json",
-    "cli"
+    "cli",
+    "json-fuzzer",
 ]
