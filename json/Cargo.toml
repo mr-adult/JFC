@@ -10,6 +10,7 @@ documentation = "https://docs.rs/toy-json-formatter/latest/toy_json_formatter/"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+generic_tokenizer = { path = "../generic_tokenizer", version = "0.1" }
 
 [dev-dependencies]
 json-fuzzer = { path = "../json-fuzzer" }

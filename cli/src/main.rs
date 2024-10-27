@@ -9,7 +9,11 @@ use std::{
 };
 
 use clap::{command, Arg, ArgAction};
-use toy_json_formatter::{format, parse, parser::{JsonString, Value}, FormatOptions};
+use toy_json_formatter::{
+    format, parse,
+    parser::{JsonString, Value},
+    FormatOptions,
+};
 
 fn main() -> Result<(), ExitCode> {
     let arg_matches = command!()
@@ -77,8 +81,15 @@ raw mode, please submit an issue to https://github.com/mr-adult/JFC.
     let indent_str = if *tab { "\t" } else { "  " };
 
     let input = if file.is_empty() {
-        let reader = BufReader::new(stdin().lock());
-        read_buf_to_string(reader)?
+        #[cfg(debug_assertions)]
+        {
+            "{{{Not JSON}}}".to_string()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let reader = BufReader::new(stdin().lock());
+            read_buf_to_string(reader)?
+        }
     } else {
         match OpenOptions::new().read(true).write(false).open(file) {
             Ok(file) => {
@@ -124,13 +135,14 @@ raw mode, please submit an issue to https://github.com/mr-adult/JFC.
                 .collect::<Vec<_>>();
 
             while let Some(top) = stack.pop() {
-                // We need this for basically the duration of the program, so just leak 
+                // We need this for basically the duration of the program, so just leak
                 // it and let the OS clean up after us.
-                let string: &'static str = Box::leak(Box::new(JsonString::unescape(&top.to_string()).to_string()));
+                let string: &'static str =
+                    Box::leak(Box::new(JsonString::unescape(&top.to_string()).to_string()));
                 let (result, errs) = parse(string);
                 *top = result;
                 errs_from_recursive_parsing.push((top.to_string(), errs));
-                
+
                 // First value is top itself. We don't want infinite loops, so skip 1.
                 for value in top.get_all_leaves_iter_mut().skip(1) {
                     if let Value::String(_) = value {
@@ -177,8 +189,7 @@ raw mode, please submit an issue to https://github.com/mr-adult/JFC.
                 if errs.is_empty() {
                     return None;
                 }
-                let mut report =
-                    "Found the following errors while parsing the string ".to_string();
+                let mut report = "Found the following errors while parsing the string ".to_string();
                 if json.len() > 70 {
                     report.push_str(&json[0..70]);
                     report.push_str("...");

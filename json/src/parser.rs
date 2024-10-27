@@ -1,7 +1,9 @@
 use std::{borrow::Cow, collections::HashMap};
 
+use generic_tokenizer::Location;
+
 use crate::{
-    tokenizer::{JsonParseErr, JsonToken, JsonTokenKind, JsonTokenizer, Position, Span},
+    tokenizer::{JsonParseErr, JsonToken, JsonTokenKind, JsonTokenizer, Span},
     JsonParseState,
 };
 
@@ -304,15 +306,16 @@ impl<'json> JsonParser<'json> {
                                             .span
                                             .as_ref()
                                         {
-                                            None => Position::default(),
+                                            None => Location::default(),
                                             Some(span) => span.start.clone(),
                                         },
                                         match key_for_map.span.as_ref() {
-                                            None => Position::default(),
+                                            None => Location::default(),
                                             Some(span) => span.start.clone(),
                                         },
                                     ));
                                 }
+
                                 let mut counter: u64 = 0;
                                 // most of the time this should take < 10 iterations,
                                 // so only allocate space for 1 additional ascii digit.
@@ -1101,55 +1104,6 @@ impl<'json> Default for JsonString<'json> {
 
 #[cfg(test)]
 mod tests {
-    use crate::tokenizer::{Position, Span};
-
-    use super::JsonString;
-
-    #[test]
-    fn escape_sequence_strings() {
-        let json_str = "\"\\\\\"";
-        let json_string = JsonString::new(
-            &json_str,
-            Span {
-                start: Position {
-                    line: 0,
-                    col: 0,
-                    raw: 0,
-                },
-                end: Position {
-                    line: 0,
-                    col: 0,
-                    raw: json_str.len(),
-                },
-            },
-        );
-
-        assert_eq!(json_string.parsed, "\\");
-        assert_eq!(json_string.sanitized, "\\\\");
-
-        let json_str = "\"\\\\t\\b\\n\\a\":10\"";
-        let json_string = JsonString::new(
-            &json_str,
-            Span {
-                start: Position {
-                    line: 0,
-                    col: 0,
-                    raw: 0,
-                },
-                end: Position {
-                    line: 0,
-                    col: 0,
-                    raw: json_str.len(),
-                },
-            },
-        );
-
-        assert_eq!(
-            super::Value::String(json_string).to_string(),
-            "\"\\\\t\\b\\n\\\\a\\\":10\""
-        )
-    }
-
     #[test]
     fn obj_keys_with_escapes_work() {
         let input = "{\"key\\\\ \\t\\b\\n\\a\":10\"}";

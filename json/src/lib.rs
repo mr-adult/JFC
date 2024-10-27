@@ -37,7 +37,7 @@ pub fn format(json: &str, options: Option<FormatOptions<'_>>) -> (String, Vec<Bo
                     errs.push(err);
                 }
                 JsonParseErr::TrailingComma(position) => {
-                    result.push_str(&json[position.as_index()..(position.as_index() + 1)])
+                    result.push_str(&json[position.byte_index()..(position.byte_index() + 1)])
                 }
                 _ => {
                     errs.push(err);

@@ -2,15 +2,17 @@ use std::{
     collections::VecDeque, error::Error, fmt::Display, iter::Peekable, ops::Range, str::CharIndices,
 };
 
+use generic_tokenizer::{CharLocations, Location};
+
 use crate::JsonParseState;
 
 pub(crate) struct JsonTokenizer<'json> {
     source_len: usize,
-    chars: Peekable<CharIndices<'json>>,
+    chars: Peekable<CharLocations<CharIndices<'json>>>,
+    last_position: Location,
     states: Vec<JsonParseState>,
     lookahead: Option<JsonToken>,
     unicode_escape_errs: VecDeque<JsonParseErr>,
-    current_position: Option<Position>,
 }
 
 impl<'json> JsonTokenizer<'json> {
@@ -18,11 +20,11 @@ impl<'json> JsonTokenizer<'json> {
         let states = vec![JsonParseState::Value];
         Self {
             source_len: source.len(),
-            chars: source.char_indices().peekable(),
+            chars: CharLocations::new(source.char_indices()).peekable(),
+            last_position: Location::default(),
             states,
             lookahead: None,
             unicode_escape_errs: VecDeque::with_capacity(0),
-            current_position: None,
         }
     }
 
@@ -32,7 +34,7 @@ impl<'json> JsonTokenizer<'json> {
 
     fn match_string(&mut self) -> Result<JsonToken, JsonParseErr> {
         let start = self.peek_position();
-        match self.chars.peek() {
+        match self.peek_char() {
             None => {
                 self.states.clear();
                 self.lookahead = Some(JsonToken {
@@ -69,22 +71,20 @@ impl<'json> JsonTokenizer<'json> {
                 Some(ch) => {
                     match ch.1 {
                         '"' => {
+                            let end = self.peek_position();
                             return Ok(JsonToken {
-                                span: Span {
-                                    start,
-                                    end: self.peek_position(),
-                                },
+                                span: Span { start, end },
                                 kind: JsonTokenKind::String,
                             });
                         }
                         '\\' => {
                             if self.match_char('u') {
-                                for i in 0..4 {
+                                for _ in 0..4 {
                                     if !self.match_char_if(|ch| ch.is_ascii_hexdigit()) {
                                         let peeked = self.peek_position();
                                         self.unicode_escape_errs.push_back(
                                             JsonParseErr::InvalidUnicodeEscapeSequence(Span {
-                                                start: self.get_current_position().minus(i + 1),
+                                                start: ch.0,
                                                 end: peeked,
                                             }),
                                         );
@@ -127,11 +127,10 @@ impl<'json> JsonTokenizer<'json> {
         self.match_char('-');
 
         let mut leading_0_err = None;
+        let leading_zero_pos = self.peek_position();
         if self.match_char('0') {
             if self.match_char_if(|ch| ch.is_ascii_digit()) {
-                leading_0_err = Some(JsonParseErr::IllegalLeading0(
-                    self.get_current_position().minus(1),
-                ));
+                leading_0_err = Some(JsonParseErr::IllegalLeading0(leading_zero_pos));
             }
         } else if !self.match_char_if(|ch| ch.is_ascii_digit()) {
             // We found only a dash... need to panic.
@@ -188,7 +187,7 @@ impl<'json> JsonTokenizer<'json> {
     }
 
     fn match_char_if<P: FnMut(char) -> bool>(&mut self, mut predicate: P) -> bool {
-        match self.chars.peek() {
+        match self.peek_char() {
             None => false,
             Some(char) => {
                 if predicate(char.1) {
@@ -201,40 +200,30 @@ impl<'json> JsonTokenizer<'json> {
         }
     }
 
-    fn next_char(&mut self) -> Option<(usize, char)> {
-        if let Some((i, ch)) = self.chars.next() {
-            if self.current_position.is_none() {
-                self.current_position = Some(Position::default());
-            }
-
-            if ch == '\n' {
-                self.current_position.as_mut().unwrap().line += 1;
-                self.current_position.as_mut().unwrap().col = 1;
-            } else {
-                self.current_position.as_mut().unwrap().col += 1;
-            }
-            self.current_position.as_mut().unwrap().raw = i;
-            Some((i, ch))
-        } else {
-            None
+    fn next_char(&mut self) -> Option<(Location, char)> {
+        let return_val = self.chars.next();
+        if let Some((loc, _)) = &return_val {
+            self.last_position = loc.clone();
+        } else if self.last_position.byte_index() != self.source_len {
+            self.last_position.increment();
         }
+        return_val
     }
 
-    fn peek_position(&mut self) -> Position {
-        let mut result = self.get_current_position();
-        if let Some((i, ch)) = self.chars.peek() {
-            if *ch == '\n' {
-                result.line += 1;
-                result.col = 1;
-            } else {
-                result.col += 1;
-            }
-            result.raw = *i;
-            result
-        } else {
-            result.raw = self.source_len;
-            result
+    fn peek_char(&mut self) -> Option<&(Location, char)> {
+        let return_val = self.chars.peek();
+        if let Some((loc, _)) = &return_val {
+            self.last_position = loc.clone();
+        } else if self.last_position.byte_index() != self.source_len {
+            self.last_position.increment();
         }
+        return_val
+    }
+
+    fn peek_position(&mut self) -> Location {
+        self.peek_char()
+            .and_then(|char_loc| Some(char_loc.0.clone()))
+            .unwrap_or_else(|| self.last_position.clone())
     }
 
     /// Tries to recover from an unexpected character using panic mode.
@@ -243,8 +232,9 @@ impl<'json> JsonTokenizer<'json> {
         let start = self.peek_position();
 
         loop {
-            match self.chars.peek() {
+            match self.peek_char() {
                 None => {
+                    self.next_char();
                     break;
                 }
                 Some(char) => {
@@ -273,10 +263,11 @@ impl<'json> JsonTokenizer<'json> {
                                     }
                                 }
 
+                                let bracket_start = self.peek_position();
                                 self.next_char();
                                 self.lookahead = Some(JsonToken {
                                     span: Span {
-                                        start: self.get_current_position(),
+                                        start: bracket_start.clone(),
                                         end: self.peek_position(),
                                     },
                                     kind: JsonTokenKind::ArrayEnd,
@@ -284,7 +275,7 @@ impl<'json> JsonTokenizer<'json> {
 
                                 return Span {
                                     start,
-                                    end: self.get_current_position(),
+                                    end: bracket_start,
                                 };
                             }
                         }
@@ -306,10 +297,12 @@ impl<'json> JsonTokenizer<'json> {
                                         break;
                                     }
                                 }
+
+                                let bracket_start = self.peek_position();
                                 self.next_char();
                                 self.lookahead = Some(JsonToken {
                                     span: Span {
-                                        start: self.get_current_position(),
+                                        start: bracket_start.clone(),
                                         end: self.peek_position(),
                                     },
                                     kind: JsonTokenKind::ObjectEnd,
@@ -317,7 +310,7 @@ impl<'json> JsonTokenizer<'json> {
 
                                 return Span {
                                     start,
-                                    end: self.get_current_position(),
+                                    end: bracket_start,
                                 };
                             }
                         }
@@ -346,11 +339,12 @@ impl<'json> JsonTokenizer<'json> {
                                 }
                             }
 
+                            let before_comma = self.peek_position();
                             // always match the comma.
                             self.next_char();
                             self.lookahead = Some(JsonToken {
                                 span: Span {
-                                    start: self.get_current_position(),
+                                    start: before_comma.clone(),
                                     end: self.peek_position(),
                                 },
                                 kind: JsonTokenKind::Comma,
@@ -358,7 +352,7 @@ impl<'json> JsonTokenizer<'json> {
 
                             return Span {
                                 start,
-                                end: self.get_current_position(),
+                                end: before_comma,
                             };
                         }
                         _ => {
@@ -373,13 +367,6 @@ impl<'json> JsonTokenizer<'json> {
         Span {
             start,
             end: self.peek_position(),
-        }
-    }
-
-    fn get_current_position(&self) -> Position {
-        match &self.current_position {
-            None => Position::default(),
-            Some(pos) => pos.clone(),
         }
     }
 }
@@ -400,11 +387,10 @@ impl<'i> Iterator for JsonTokenizer<'i> {
             match self.states.pop() {
                 None => {
                     self.match_whitespace();
+                    let before_comma = self.peek_position();
                     if self.match_char(',') {
                         // trailing commas are common. Make sure we don't choke on them.
-                        return Some(Err(JsonParseErr::TrailingComma(
-                            self.get_current_position(),
-                        )));
+                        return Some(Err(JsonParseErr::TrailingComma(before_comma)));
                     }
                     self.match_whitespace();
                     self.states.push(JsonParseState::Value);
@@ -413,7 +399,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                     match state {
                         JsonParseState::Value => {
                             self.match_whitespace();
-                            match self.chars.peek() {
+                            match self.peek_char().cloned() {
                                 None => {
                                     if self.states.is_empty() {
                                         return None;
@@ -426,12 +412,15 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                     if !self.states.is_empty() {
                                         self.states.push(JsonParseState::AfterValue);
                                     }
+
                                     match ch.1 {
                                         '{' => {
                                             self.states.push(JsonParseState::Object);
+
+                                            let before_bracket = self.peek_position();
                                             self.next_char();
                                             let span = Span {
-                                                start: self.get_current_position(),
+                                                start: before_bracket,
                                                 end: self.peek_position(),
                                             };
                                             return Some(Ok(JsonToken {
@@ -441,8 +430,9 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                         }
                                         '[' => {
                                             self.states.push(JsonParseState::Array);
+                                            let before_bracket = self.peek_position();
                                             self.next_char();
-                                            let start = self.get_current_position();
+                                            let start = before_bracket;
                                             let span = Span {
                                                 start,
                                                 end: self.peek_position(),
@@ -470,17 +460,12 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             return Some(self.match_number());
                                         }
                                         _ => {
-                                            let current_position = if self.current_position.is_none()
-                                            {
-                                                Position::default()
-                                            } else {
-                                                self.peek_position()
-                                            };
+                                            let before_match = self.peek_position();
 
                                             if self.match_literal("true") {
                                                 return Some(Ok(JsonToken {
                                                     span: Span {
-                                                        start: current_position,
+                                                        start: before_match,
                                                         end: self.peek_position(),
                                                     },
                                                     kind: JsonTokenKind::True,
@@ -490,7 +475,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             if self.match_literal("false") {
                                                 return Some(Ok(JsonToken {
                                                     span: Span {
-                                                        start: current_position,
+                                                        start: before_match,
                                                         end: self.peek_position(),
                                                     },
                                                     kind: JsonTokenKind::False,
@@ -500,7 +485,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             if self.match_literal("null") {
                                                 return Some(Ok(JsonToken {
                                                     span: Span {
-                                                        start: current_position,
+                                                        start: before_match,
                                                         end: self.peek_position(),
                                                     },
                                                     kind: JsonTokenKind::Null,
@@ -511,7 +496,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                             self.states.pop();
                                             self.states.push(JsonParseState::Value);
                                             let mut span = self.recover_in_panic_mode();
-                                            span.start = current_position;
+                                            span.start = before_match;
                                             return Some(Err(JsonParseErr::UnexpectedCharacters(
                                                 span,
                                             )));
@@ -522,10 +507,11 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                         }
                         JsonParseState::Object => {
                             self.match_whitespace();
+                            let before_bracket = self.peek_position();
                             if self.match_char('}') {
                                 return Some(Ok(JsonToken {
                                     span: Span {
-                                        start: self.get_current_position(),
+                                        start: before_bracket,
                                         end: self.peek_position(),
                                     },
                                     kind: JsonTokenKind::ObjectEnd,
@@ -541,10 +527,11 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                         }
                         JsonParseState::KeyValuePairColon => {
                             self.match_whitespace();
+                            let before_colon = self.peek_position();
                             if self.match_char(':') {
                                 return Some(Ok(JsonToken {
                                     span: Span {
-                                        start: self.get_current_position(),
+                                        start: before_colon,
                                         end: self.peek_position(),
                                     },
                                     kind: JsonTokenKind::Colon,
@@ -573,14 +560,14 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                         }
                         JsonParseState::AfterValue => {
                             self.match_whitespace();
-                            let start = self.get_current_position();
+                            let start = self.peek_position();
                             if self.match_char(',') {
-                                let comma_position = self.get_current_position();
+                                let after_comma = self.peek_position();
                                 self.match_whitespace();
-                                if let Some((_, '}' | ']')) = self.chars.peek() {
+                                if let Some((_, '}' | ']')) = self.peek_char() {
                                     return Some(Err(
                                         // trailing commas are common. Make sure we don't choke on them.
-                                        JsonParseErr::TrailingComma(comma_position),
+                                        JsonParseErr::TrailingComma(start),
                                     ));
                                 }
 
@@ -595,8 +582,8 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                         self.states.push(JsonParseState::KeyValuePairKey);
                                         return Some(Ok(JsonToken {
                                             span: Span {
-                                                start: self.get_current_position(),
-                                                end: self.peek_position(),
+                                                start: start,
+                                                end: after_comma,
                                             },
                                             kind: JsonTokenKind::Comma,
                                         }));
@@ -606,7 +593,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                         return Some(Ok(JsonToken {
                                             span: Span {
                                                 start,
-                                                end: self.get_current_position(),
+                                                end: after_comma,
                                             },
                                             kind: JsonTokenKind::Comma,
                                         }));
@@ -624,10 +611,11 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                         }
                         JsonParseState::Array => {
                             self.match_whitespace();
+                            let before_bracket = self.peek_position();
                             if self.match_char(']') {
                                 return Some(Ok(JsonToken {
                                     span: Span {
-                                        start: self.get_current_position(),
+                                        start: before_bracket,
                                         end: self.peek_position(),
                                     },
                                     kind: JsonTokenKind::ArrayEnd,
@@ -652,54 +640,13 @@ pub(crate) struct JsonToken {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Span {
-    pub(crate) start: Position,
-    pub(crate) end: Position,
+    pub(crate) start: Location,
+    pub(crate) end: Location,
 }
 
 impl Span {
     pub(crate) fn as_range(&self) -> Range<usize> {
-        self.start.raw..self.end.raw
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct Position {
-    pub(crate) line: usize,
-    pub(crate) col: usize,
-    pub(crate) raw: usize,
-}
-
-impl Position {
-    pub(crate) fn as_index(&self) -> usize {
-        self.raw
-    }
-
-    /// this function assumes that you know the
-    /// value is on the same line. It will panic
-    /// if you subtract more than the number of
-    /// columns in the line so far.
-    fn minus(&self, amount: usize) -> Self {
-        Self {
-            line: self.line,
-            col: self.col - amount,
-            raw: self.raw - amount,
-        }
-    }
-}
-
-impl Default for Position {
-    fn default() -> Self {
-        Self {
-            line: 1,
-            col: 1,
-            raw: 0,
-        }
-    }
-}
-
-impl Display for Position {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "line: {} column: {}", self.line, self.col)
+        self.start.byte_index()..self.end.byte_index()
     }
 }
 
@@ -721,12 +668,12 @@ pub(crate) enum JsonTokenKind {
 #[derive(Debug, Clone)]
 pub(crate) enum JsonParseErr {
     UnexpectedEOF,
-    IllegalLeading0(Position),
+    IllegalLeading0(Location),
     UnexpectedCharacters(Span),
-    TrailingComma(Position),
+    TrailingComma(Location),
     InvalidUnicodeEscapeSequence(Span),
-    UnclosedString(Position),
-    DuplicateObjectKeys(Position, Position),
+    UnclosedString(Location),
+    DuplicateObjectKeys(Location, Location),
 }
 
 impl Error for JsonParseErr {}
