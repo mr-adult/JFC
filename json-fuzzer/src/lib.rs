@@ -6,6 +6,23 @@ use rand::{
     thread_rng, Rng, RngCore,
 };
 
+/// Creates an iterator that will create JSON-like strings to test
+/// tokenizer/parser implementations. The iterator which is returned
+/// is infinite. It will generate strings until you stop asking for
+/// them. For this reason, code like the following will create an
+/// infinite loop:
+/// ```rust
+/// use json_fuzzer::fuzz;
+/// 
+/// for json_string in fuzz() {
+///     todo!("Your code here");
+/// }
+/// ```
+/// 
+/// The strings target characters important to implementors, so these 
+/// strings will contain both valid and invalid sequences of '{', '}',
+/// '[', ']', ',', and other characters. It also targets escape sequences.
+/// 
 pub fn fuzz() -> impl Iterator<Item = String> {
     JsonFuzzer(
         thread_rng(),
