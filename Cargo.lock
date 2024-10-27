@@ -112,7 +112,7 @@ dependencies = [
 
 [[package]]
 name = "jfc"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "clap",
  "toy-json-formatter",
@@ -207,7 +207,7 @@ dependencies = [
 
 [[package]]
 name = "toy-json-formatter"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "generic_tokenizer",
  "json-fuzzer",
