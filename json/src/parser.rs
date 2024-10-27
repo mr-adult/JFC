@@ -530,10 +530,12 @@ impl<'json> JsonParser<'json> {
                         JsonParseErr::UnexpectedCharacters(span) => {
                             let span = span.clone();
                             self.errs.push(err);
-                            return Some(JsonToken {
-                                kind: JsonTokenKind::String,
-                                span,
-                            });
+                            if span.end.byte_index() != span.start.byte_index() {
+                                return Some(JsonToken {
+                                    kind: JsonTokenKind::String,
+                                    span,
+                                });
+                            }
                         }
                     },
                 },
@@ -571,7 +573,11 @@ struct ObjectInProgress<'json> {
 }
 
 impl<'json> Into<Object<'json>> for ObjectInProgress<'json> {
-    fn into(self) -> Object<'json> {
+    fn into(mut self) -> Object<'json> {
+        if let Some(active_key) = std::mem::take(&mut self.active_key) {
+            self.insert(active_key, Value::Null);
+        }
+
         Object {
             map: self.map,
             keys_in_found_order: self.keys_in_found_order,
