@@ -832,11 +832,17 @@ impl<'json> JsonString<'json> {
     }
 
     pub fn unescape(source: &str) -> Cow<'_, str> {
-        Self::parse(source, true)
+        let result = Self::parse(source, true);
+        #[cfg(debug_assertions)]
+        println!("\n\n\nUnescaped: {source}\n\n\nResult: {result}\n\n\n");
+        result
     }
 
     fn sanitize(source: &str) -> Cow<'_, str> {
-        Self::parse(source, false)
+        let result = Self::parse(source, false);
+        #[cfg(debug_assertions)]
+        println!("\n\n\nUnescaped: {source}\n\n\nSanitized: {result}\n\n\n");
+        result
     }
 
     fn parse(mut source: &str, replace_escape_chars: bool) -> Cow<'_, str> {
@@ -984,10 +990,10 @@ impl<'json> JsonString<'json> {
                         '"' => {
                             // don't escape the ending quote. Quotes are ascii, so -1 is safe
                             if i == source.len() - 1 {
-                                match cow {
-                                    Cow::Borrowed(str) => cow = Cow::Borrowed(str),
-                                    Cow::Owned(string) => cow = Cow::Owned(string),
-                                }
+                                cow = match cow {
+                                    Cow::Owned(string) => Cow::Owned(string),
+                                    Cow::Borrowed(str) => Cow::Borrowed(&str[..str.len() - 1]),
+                                };
                                 continue;
                             }
 
