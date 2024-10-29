@@ -10,7 +10,7 @@ JSON Formatting CLI (JFC) is a CLI tool written in Rust for working with malform
 
 ## Installation
 To install JFC: 
-1. Install the rust toolchain following the directions on [doc.rust-land.org](https://doc.rust-lang.org/cargo/getting-started/installation.html) to install cargo.
+1. Install the rust toolchain following the directions on [doc.rust-lang.org](https://doc.rust-lang.org/cargo/getting-started/installation.html) to install cargo.
 2. Switch to the unstable rust toolchain by running `rustup override set nightly`
 3. Run `cargo install jfc`
 4. Switch back to the stable rust toolchain by running `rustup override set stable`
