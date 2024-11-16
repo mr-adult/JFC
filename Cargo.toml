@@ -4,5 +4,5 @@ members = [
     "generic_tokenizer",
     "json",
     "cli",
-    "json-fuzzer",
+    "json-fuzzer", 
 ]
