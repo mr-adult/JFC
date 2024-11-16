@@ -5,4 +5,5 @@ members = [
     "json",
     "cli",
     "json-fuzzer", 
+    "streaming-parser",
 ]
