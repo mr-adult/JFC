@@ -1,0 +1,23 @@
+[package]
+name = "streaming_serde_json"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "This is a streaming alternative to serde_json for processing JSON data sources that are too large to fit in memory."
+repository = "https://github.com/mr-adult/JFC"
+documentation = "https://docs.rs/streaming_serde_json/latest/streaming_serde_json/"
+
+[profile.release]
+lto = true
+
+[dependencies]
+serde = "1.0"
+serde_json = "1.0"
+
+[dev-dependencies]
+serde_derive = "1.0"
+utf8-chars = "3.0"
+json-fuzzer = { path = "../json-fuzzer" }
+
+[features]
+debug = []
