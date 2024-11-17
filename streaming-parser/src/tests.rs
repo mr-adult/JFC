@@ -85,6 +85,7 @@ fn lazy_parse_super_large() {
 }
 
 // #[test]
+#[allow(dead_code)]
 fn fuzz_value() {
     std::panic::catch_unwind(|| {
         let fuzz = json_fuzzer::fuzz();
@@ -98,6 +99,7 @@ fn fuzz_value() {
 }
 
 // #[test]
+#[allow(dead_code)]
 fn fuzz_key_value_pairs() {
     std::panic::catch_unwind(|| {
         let fuzz = json_fuzzer::fuzz();

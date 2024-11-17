@@ -738,6 +738,7 @@ pub(crate) struct Token {
 #[derive(Clone, Debug)]
 pub(crate) struct Span {
     pub(crate) start: Location,
+    #[allow(dead_code)]
     pub(crate) end: Location,
 }
 
@@ -775,7 +776,9 @@ pub enum ErrKind<PassThroughErr> {
         actual: Option<char>,
     },
     UnexpectedToken {
+        #[allow(private_interfaces)]
         expected: Vec<TokenKind>,
+        #[allow(private_interfaces)]
         actual: Option<TokenKind>,
     },
     IntegerOverflow(String),

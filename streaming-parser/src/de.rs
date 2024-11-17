@@ -1,5 +1,3 @@
-use std::convert::Infallible;
-
 use crate::tokenizer::{ErrKind, Error, Token, TokenKind};
 use serde::de::{
     self, DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess, VariantAccess,
@@ -1071,6 +1069,7 @@ where
 
 #[test]
 fn test_struct() {
+    use std::convert::Infallible;
     use crate::from_value_stream;
     use serde_derive::Deserialize;
     #[derive(Deserialize, PartialEq, Debug)]
