@@ -1,6 +1,6 @@
 [package]
 name = "streaming_serde_json"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 description = "This is a streaming alternative to serde_json for processing JSON data sources that are too large to fit in memory."
