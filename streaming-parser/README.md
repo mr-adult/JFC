@@ -98,7 +98,7 @@ let chars = reader.chars();
 // The value stream has a PassThroughError type parameter since most
 // sources with data large enough to need this will be fallible to
 // read from.
-let values = from_value_stream::<InputData, _, std::io::Error>(chars);
+let values = from_value_stream::<InputData, _, _>(chars);
 
 let mut global_min = i32::MAX;
 let mut global_max = i32::MIN;
@@ -182,7 +182,7 @@ let chars = reader.chars();
 // The value stream has a PassThroughError type parameter since most
 // sources with data large enough to need this API will be fallible to
 // read from.
-let values = from_key_value_pair_stream::<u32, _, std::io::Error>(chars);
+let values = from_key_value_pair_stream::<u32, _, _>(chars);
 
 let mut global_total = 0_u128;
 let mut city_count = 0_u32;
