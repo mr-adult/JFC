@@ -70,8 +70,14 @@ where
                     if let Some(next) = self.iter.next() {
                         self.state = ValueWriterState::Colon;
                         self.value = Some(next.1);
+
+                        let string = match serde_json::to_string(&next.0) {
+                            Err(err) => return Some(Err(err)),
+                            Ok(val) => val,
+                        };
+
                         self.queued.push_back("\"".to_string());
-                        self.queued.push_back(next.0);
+                        self.queued.push_back(string);
                         self.queued.push_back("\"".to_string());
                         return Some(Ok(",".to_string()));
                     }

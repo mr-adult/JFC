@@ -18,6 +18,7 @@ pub use key_value_pair_stream::KeyValuePairStream;
 pub use key_value_pair_writer::KeyValuePairWriter;
 pub use value_stream::ValueStream;
 pub use value_writer::ValueWriter;
+pub use tokenizer::Error;
 
 /// Lazily parses the JSON from the given stream of characters. If the stream of characters
 /// does not represent a valid stream of JSON, then this stream will continue parsing until

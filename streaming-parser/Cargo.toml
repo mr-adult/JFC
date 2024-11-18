@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "This is a streaming alternative to serde_json for processing JSON data sources that are too large to fit in memory."
-repository = "https://github.com/mr-adult/JFC"
+repository = "https://github.com/mr-adult/JFC/tree/main/streaming-parser"
 documentation = "https://docs.rs/streaming_serde_json/latest/streaming_serde_json/"
 
 [profile.release]
