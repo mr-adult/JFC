@@ -8,11 +8,14 @@ use std::{
     process::ExitCode,
 };
 
+mod json;
+
 use clap::{command, Arg, ArgAction};
-use toy_json_formatter::{
-    format, parse,
+use colored::Colorize;
+use json::{
+    parse,
     parser::{JsonString, Value},
-    FormatOptions,
+    FormatOptions, JsonParseErr, JsonTokenKind, JsonTokenizer,
 };
 
 fn main() -> Result<(), ExitCode> {
@@ -83,7 +86,28 @@ raw mode, please submit an issue to https://github.com/mr-adult/JFC.
     let input = if file.is_empty() {
         #[cfg(debug_assertions)]
         {
-            "{{{Not JSON}}}".to_string()
+            r#"{
+    "glossary": {
+        "title": "example glossary",
+		"GlossDiv": {
+            "title": "S",
+			"GlossList": {
+                "GlossEntry": {
+                    "ID": "SGML",
+					"SortAs": "SGML",
+					"GlossTerm": "Standard Generalized Markup Language",
+					"Acronym": "SGML",
+					"Abbrev": "ISO 8879:1986",
+					"GlossDef": {
+                        "para": "A meta-markup language, used to create markup languages such as DocBook.",
+						"GlossSeeAlso": ["GML", "XML"]
+                    },
+					"GlossSee": "markup"
+                }
+            }
+        }
+    }
+}"#.to_string()
         }
         #[cfg(not(debug_assertions))]
         {
@@ -113,7 +137,7 @@ raw mode, please submit an issue to https://github.com/mr-adult/JFC.
     let errs_to_report;
     let mut errs_from_recursive_parsing: Vec<(String, Vec<Box<dyn Error>>)> = Vec::with_capacity(0);
     if *raw {
-        let (output, errs) = format(
+        let (output, errs) = format_colored(
             &input,
             Some(FormatOptions {
                 compact: *compact,
@@ -154,14 +178,13 @@ raw mode, please submit an issue to https://github.com/mr-adult/JFC.
 
         let mut stdout = stdout().lock();
         if *compact {
-            stdout.write_all(output.to_string().as_bytes()).ok();
+            stdout.write_all(to_bytes(&output).as_bytes()).ok();
         } else {
             stdout
-                .write_all(
-                    output
-                        .to_string_pretty_with_indent_str(if *tab { "\t" } else { "  " })
-                        .as_bytes(),
-                )
+                .write_all(&to_bytes_pretty_with_indent_str(
+                    &output,
+                    if *tab { "\t" } else { "  " },
+                ))
                 .ok();
         }
         stdout.write(&[b'\n', b'\n']).ok();
@@ -291,4 +314,369 @@ pub fn read_buf_to_string<T: Read>(mut reader: BufReader<T>) -> Result<String, E
     }
 
     Ok(parsed_input)
+}
+
+pub(crate) fn format_colored(
+    json: &str,
+    options: Option<FormatOptions<'_>>,
+) -> (String, Vec<Box<dyn Error>>) {
+    let mut result = String::new();
+    let tokenizer = JsonTokenizer::new(json);
+    let mut errs = Vec::new();
+    let mut indent = 0;
+    let mut previous = None;
+
+    let chosen_options = options.unwrap_or_else(|| FormatOptions {
+        compact: false,
+        indent_str: "\t",
+    });
+
+    let compact_mode = chosen_options.compact;
+    let indent_str = chosen_options.indent_str;
+
+    for token in tokenizer.into_iter() {
+        match token {
+            Err(err) => match &err {
+                JsonParseErr::UnexpectedCharacters(span) => {
+                    result.push_str(&json[span.as_range()]);
+                    errs.push(err);
+                }
+                JsonParseErr::TrailingComma(position) => {
+                    result.push_str(&json[position.byte_index()..(position.byte_index() + 1)])
+                }
+                _ => {
+                    errs.push(err);
+                }
+            },
+            Ok(token) => {
+                match token.kind() {
+                    JsonTokenKind::ObjectStart => {
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
+                            }
+                        }
+
+                        let colored_bracket = match indent % 3 {
+                            0 => "{".magenta(),
+                            1 => "{".green(),
+                            2 => "{".yellow(),
+                            _ => unreachable!(),
+                        };
+
+                        indent += 1;
+                        result.push_str(&format!("{}", colored_bracket));
+                    }
+                    JsonTokenKind::ObjectEnd => {
+                        if indent > 0 {
+                            indent -= 1;
+                        }
+
+                        let colored_bracket = match indent % 3 {
+                            0 => "}".magenta(),
+                            1 => "}".green(),
+                            2 => "}".yellow(),
+                            _ => unreachable!(),
+                        };
+
+                        if let Some(JsonTokenKind::ObjectStart) = previous {
+                            result.push_str(&format!("{}", colored_bracket));
+                        } else {
+                            if !compact_mode {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
+                            }
+                            result.push_str(&format!("{}", colored_bracket));
+                        }
+                    }
+                    JsonTokenKind::ArrayStart => {
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
+                            }
+                        }
+
+                        let colored_bracket = match indent % 3 {
+                            0 => "[".magenta(),
+                            1 => "[".green(),
+                            2 => "[".yellow(),
+                            _ => unreachable!(),
+                        };
+
+                        indent += 1;
+                        result.push_str(&format!("{}", colored_bracket));
+                    }
+                    JsonTokenKind::ArrayEnd => {
+                        if indent > 0 {
+                            indent -= 1;
+                        }
+
+                        let colored_bracket = match indent % 3 {
+                            0 => "]".magenta(),
+                            1 => "]".green(),
+                            2 => "]".yellow(),
+                            _ => unreachable!(),
+                        };
+
+                        if let Some(JsonTokenKind::ArrayStart) = previous {
+                            result.push_str(&format!("{}", colored_bracket));
+                        } else {
+                            if !compact_mode {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
+                            }
+                            result.push_str(&format!("{}", colored_bracket));
+                        }
+                    }
+                    JsonTokenKind::Colon => {
+                        result.push(':');
+                        if !compact_mode {
+                            result.push(' ');
+                        }
+                    }
+                    JsonTokenKind::Comma => {
+                        result.push(',');
+                        if !compact_mode {
+                            result.push('\n');
+                            for _ in 0..indent {
+                                result.push_str(indent_str);
+                            }
+                        }
+                    }
+                    JsonTokenKind::String => {
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
+                            }
+                        }
+                        result.push_str(&format!("{}", &json[token.span().as_range()].cyan()));
+                    }
+                    JsonTokenKind::Number => {
+                        if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                            previous
+                        {
+                            if !compact_mode {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
+                            }
+                        }
+                        result.push_str(&format!("{}", &json[token.span().as_range()].green()))
+                    }
+                    JsonTokenKind::True => {
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
+                            }
+                        }
+                        result.push_str(&format!("{}", "true".green()))
+                    }
+                    JsonTokenKind::False => {
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
+                            }
+                        }
+                        result.push_str(&format!("{}", "false".green()))
+                    }
+                    JsonTokenKind::Null => {
+                        if !compact_mode {
+                            if let Some(JsonTokenKind::ObjectStart | JsonTokenKind::ArrayStart) =
+                                previous
+                            {
+                                result.push('\n');
+                                for _ in 0..indent {
+                                    result.push_str(indent_str);
+                                }
+                            }
+                        }
+                        result.push_str(&format!("{}", "null".green()));
+                    }
+                }
+                // we only need this for whitespace decisions, so skip if in compact mode
+                if !compact_mode {
+                    previous = Some(token.kind());
+                }
+            }
+        }
+    }
+
+    (
+        result,
+        if !errs.is_empty() {
+            errs.into_iter()
+                .map(|err| Box::new(err) as Box<dyn Error>)
+                .collect()
+        } else {
+            Vec::with_capacity(0)
+        },
+    )
+}
+
+pub fn to_bytes(value: &Value) -> String {
+    let mut result = Vec::new();
+    to_string_colorized(value, &mut result, false, 0, "");
+    unsafe { String::from_utf8_unchecked(result) }
+}
+
+pub fn to_bytes_pretty(value: &Value) -> Vec<u8> {
+    let mut result = Vec::new();
+    to_string_colorized(&value, &mut result, true, 0, "  ");
+    result
+}
+
+pub fn to_bytes_pretty_with_indent_str(value: &Value, indent_str: &str) -> Vec<u8> {
+    let mut result = Vec::new();
+    to_string_colorized(value, &mut result, true, 0, indent_str);
+    result
+}
+
+fn to_string_colorized(
+    value: &Value,
+    buf: &mut Vec<u8>,
+    pretty: bool,
+    indent_level: usize,
+    indent_str: &str,
+) {
+    match value {
+        Value::Null => {
+            buf.extend_from_slice(&format!("{}", "null".green()).as_bytes());
+        }
+        Value::Bool(bool) => {
+            if *bool {
+                buf.extend_from_slice(&format!("{}", "true".green()).as_bytes());
+            } else {
+                buf.extend_from_slice(&format!("{}", "false".green()).as_bytes());
+            }
+        }
+        Value::Number(num) => {
+            buf.extend_from_slice(format!("{}", num.sanitized().green()).as_bytes());
+        }
+        Value::String(str) => {
+            to_string_for_string(str, buf);
+        }
+        Value::Array(vec) => {
+            let colored_bracket = match indent_level % 3 {
+                0 => "[".magenta(),
+                1 => "[".green(),
+                2 => "[".yellow(),
+                _ => unreachable!(),
+            };
+            buf.extend_from_slice(format!("{}", colored_bracket).as_bytes());
+
+            for (i, item) in vec.iter().enumerate() {
+                if i != 0 {
+                    buf.push(b',');
+                }
+                if pretty {
+                    buf.push(b'\n');
+                    for _ in 0..indent_level + 1 {
+                        buf.extend_from_slice(indent_str.as_bytes());
+                    }
+                }
+                to_string_colorized(item, buf, pretty, indent_level + 1, indent_str);
+            }
+
+            if pretty && vec.len() > 0 {
+                buf.push(b'\n');
+                for _ in 0..indent_level {
+                    buf.extend_from_slice(indent_str.as_bytes());
+                }
+            }
+
+            let colored_bracket = match indent_level % 3 {
+                0 => "]".magenta(),
+                1 => "]".green(),
+                2 => "]".yellow(),
+                _ => unreachable!(),
+            };
+            buf.extend_from_slice(format!("{}", colored_bracket).as_bytes());
+        }
+        Value::Object(obj) => {
+            let colored_bracket = match indent_level % 3 {
+                0 => "{".magenta(),
+                1 => "{".green(),
+                2 => "{".yellow(),
+                _ => unreachable!(),
+            };
+            buf.extend_from_slice(format!("{}", colored_bracket).as_bytes());
+
+            for (i, cow) in obj.keys_in_order_found().enumerate() {
+                if i != 0 {
+                    buf.push(b',');
+                }
+                if pretty {
+                    buf.push(b'\n');
+                    for _ in 0..indent_level + 1 {
+                        buf.extend_from_slice(indent_str.as_bytes());
+                    }
+                }
+                let key = obj
+                    .get_map()
+                    .get_key_value(&JsonString::from(cow.clone()))
+                    .expect("BUG: key to be in the object")
+                    .0;
+
+                buf.extend_from_slice(format!("{}", key.sanitized().cyan()).as_bytes());
+
+                buf.push(b':');
+                if pretty {
+                    buf.push(b' ');
+                }
+
+                let value = obj.get_map().get(&JsonString::from(cow.clone())).expect("BUG: values in the keys in found order vec should always be in the object hashmap as well.");
+                to_string_colorized(value, buf, pretty, indent_level + 1, indent_str);
+            }
+
+            if pretty && obj.keys_in_order_found().len() > 0 {
+                buf.push(b'\n');
+                for _ in 0..indent_level {
+                    buf.extend_from_slice(indent_str.as_bytes());
+                }
+            }
+
+            let colored_bracket = match indent_level % 3 {
+                0 => "}".magenta(),
+                1 => "}".green(),
+                2 => "}".yellow(),
+                _ => unreachable!(),
+            };
+
+            buf.extend_from_slice(&format!("{}", colored_bracket).as_bytes());
+        }
+    }
+}
+
+fn to_string_for_string(str: &JsonString, buf: &mut Vec<u8>) {
+    buf.extend_from_slice(format!("{}", format!("\"{}\"", str.sanitized()).yellow()).as_bytes());
 }
