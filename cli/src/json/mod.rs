@@ -3,8 +3,6 @@ pub(crate) use parser::{JsonParser, Value};
 pub(crate) use tokenizer::{JsonParseErr, JsonTokenKind, JsonTokenizer};
 pub(crate) mod parser;
 
-use std::error::Error;
-
 pub(crate) struct FormatOptions<'a> {
     /// Compact mode removes all whitespace
     pub(crate) compact: bool,
@@ -12,15 +10,10 @@ pub(crate) struct FormatOptions<'a> {
     pub(crate) indent_str: &'a str,
 }
 
-pub(crate) fn parse<'json>(json: &'json str) -> (Value<'json>, Vec<Box<dyn Error>>) {
+pub(crate) fn parse<'json>(json: &'json str) -> (Value<'json>, Vec<JsonParseErr>) {
     let (value, errs) = JsonParser::parse(json);
 
-    (
-        value,
-        errs.into_iter()
-            .map(|err| Box::new(err) as Box<dyn Error>)
-            .collect(),
-    )
+    (value, errs)
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -35,13 +28,9 @@ pub(crate) enum JsonParseState {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        borrow::Cow,
-    };
+    use std::borrow::Cow;
 
-    use super::{
-        parser::JsonString,
-    };
+    use super::parser::JsonString;
 
     #[test]
     fn escape_sequences() {

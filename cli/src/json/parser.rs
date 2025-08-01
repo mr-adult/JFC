@@ -306,12 +306,12 @@ impl<'json> JsonParser<'json> {
                                             .span
                                             .as_ref()
                                         {
-                                            None => Location::default(),
-                                            Some(span) => span.start.clone(),
+                                            None => Span::default(),
+                                            Some(span) => span.clone(),
                                         },
                                         match key_for_map.span.as_ref() {
-                                            None => Location::default(),
-                                            Some(span) => span.start.clone(),
+                                            None => Span::default(),
+                                            Some(span) => span.clone(),
                                         },
                                     ));
                                 }

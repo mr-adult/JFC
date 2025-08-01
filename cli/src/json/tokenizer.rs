@@ -683,7 +683,7 @@ pub(crate) enum JsonParseErr {
     TrailingComma(Location),
     InvalidUnicodeEscapeSequence(Span),
     UnclosedString(Location),
-    DuplicateObjectKeys(Location, Location),
+    DuplicateObjectKeys(Span, Span),
 }
 
 impl Error for JsonParseErr {}
@@ -715,11 +715,11 @@ impl Display for JsonParseErr {
                 result.push_str("Found unclosed string at ");
                 result.push_str(&format!("{}", position));
             }
-            JsonParseErr::DuplicateObjectKeys(start1, start2) => {
+            JsonParseErr::DuplicateObjectKeys(span1, span2) => {
                 result.push_str("Found duplicate object keys at ");
-                result.push_str(&format!("{}", start1));
+                result.push_str(&format!("{}", span1.start));
                 result.push_str(" and ");
-                result.push_str(&format!("{}", start2));
+                result.push_str(&format!("{}", span2.start));
             }
         }
         f.write_str(&result)?;

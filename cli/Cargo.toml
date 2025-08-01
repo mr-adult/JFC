@@ -1,6 +1,6 @@
 [package]
 name = "jfc"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 license = "MIT"
 description = "A CLI tool for working with malformed JSON"
@@ -12,5 +12,6 @@ lto = true
 
 [dependencies]
 clap = { version = "4.5", features = ["cargo"] }
+codespan-reporting = "0.12.0"
 generic_tokenizer = { path = "../generic_tokenizer", version = "0.1" }
 colored = "3.0.0"

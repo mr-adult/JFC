@@ -11,6 +11,14 @@ use std::{
 mod json;
 
 use clap::{command, Arg, ArgAction};
+use codespan_reporting::{
+    diagnostic::{Diagnostic, Label},
+    files::SimpleFiles,
+    term::{
+        self,
+        termcolor::{ColorChoice, StandardStream},
+    },
+};
 use colored::Colorize;
 use json::{
     parse,
@@ -135,7 +143,7 @@ raw mode, please submit an issue to https://github.com/mr-adult/JFC.
     };
 
     let errs_to_report;
-    let mut errs_from_recursive_parsing: Vec<(String, Vec<Box<dyn Error>>)> = Vec::with_capacity(0);
+    let mut errs_from_recursive_parsing: Vec<(String, Vec<JsonParseErr>)> = Vec::with_capacity(0);
     if *raw {
         let (output, errs) = format_colored(
             &input,
@@ -193,46 +201,105 @@ raw mode, please submit an issue to https://github.com/mr-adult/JFC.
     }
 
     if !errs_to_report.is_empty() {
-        let err_out = errs_to_report
-            .into_iter()
-            .map(|err| format!("{}", err))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let mut files = SimpleFiles::new();
+        let file_id = files.add("input.json".to_string(), input);
 
-        let mut stderr = stderr().lock();
-        stderr.write_all(err_out.as_bytes()).ok();
-        stderr.write_all(&[b'\n', b'\n']).ok();
-        stderr.flush().ok();
-    }
+        let writer = StandardStream::stderr(ColorChoice::Always);
+        let config = codespan_reporting::term::Config::default();
 
-    if !errs_from_recursive_parsing.is_empty() {
-        let err_out = errs_from_recursive_parsing
-            .into_iter()
-            .map(|(json, errs)| {
-                if errs.is_empty() {
-                    return None;
-                }
-                let mut report = "Found the following errors while parsing the string ".to_string();
-                if json.len() > 70 {
-                    report.push_str(&json[0..70]);
-                    report.push_str("...");
-                } else {
-                    report.push_str(&json);
-                }
-                report.push_str("\n");
-                for err in errs {
-                    report.push_str(&format!("{}\n", err));
-                }
-                Some(report)
-            })
-            .flat_map(|opt| opt)
-            .collect::<Vec<_>>()
-            .join("\n");
+        for err in errs_to_report {
+            let mut diagnostic = Diagnostic::error().with_message(format!("{}", err));
 
-        let mut stderr = stderr().lock();
-        stderr.write_all(err_out.as_bytes()).ok();
-        stderr.write_all(&[b'\n', b'\n']).ok();
-        stderr.flush().ok();
+            match err {
+                JsonParseErr::UnexpectedEOF => {}
+                JsonParseErr::IllegalLeading0(location) => {
+                    diagnostic = diagnostic.with_label(Label::primary(
+                        file_id,
+                        location.byte_index()..(location.byte_index() + 1),
+                    ));
+                }
+                JsonParseErr::UnexpectedCharacters(span) => {
+                    diagnostic = diagnostic.with_label(Label::primary(file_id, span.as_range()))
+                }
+                JsonParseErr::TrailingComma(location) => {
+                    diagnostic = diagnostic.with_label(Label::primary(
+                        file_id,
+                        location.byte_index()..(location.byte_index() + 1),
+                    ))
+                }
+                JsonParseErr::InvalidUnicodeEscapeSequence(span) => {
+                    diagnostic = diagnostic.with_label(Label::primary(file_id, span.as_range()))
+                }
+                JsonParseErr::UnclosedString(location) => {
+                    diagnostic = diagnostic.with_label(Label::primary(
+                        file_id,
+                        location.byte_index()..(location.byte_index() + 1),
+                    ))
+                }
+                JsonParseErr::DuplicateObjectKeys(span1, span2) => {
+                    diagnostic = diagnostic.with_labels(vec![
+                        Label::primary(file_id, span1.as_range()),
+                        Label::primary(file_id, span2.as_range()),
+                    ])
+                }
+            }
+
+            term::emit(&mut writer.lock(), &config, &files, &diagnostic).ok();
+        }
+
+        for (i, (json_text, errs)) in errs_from_recursive_parsing.into_iter().enumerate() {
+            let file_id = files.add(format!("recursive_input_{i}.json"), json_text.to_string());
+
+            for err in errs {
+                let mut diagnostic = Diagnostic::error().with_message(format!("{}", err));
+
+                match err {
+                    JsonParseErr::UnexpectedEOF => {}
+                    JsonParseErr::IllegalLeading0(location) => {
+                        diagnostic = diagnostic.with_label(Label::primary(
+                            file_id,
+                            (location.byte_index() + 1)..(location.byte_index() + 2),
+                        ));
+                    }
+                    JsonParseErr::UnexpectedCharacters(span) => {
+                        let mut range = span.as_range();
+                        range = (range.start + 1)..(range.end + 1);
+                        diagnostic = diagnostic.with_label(Label::primary(file_id, range))
+                    }
+                    JsonParseErr::TrailingComma(location) => {
+                        diagnostic = diagnostic.with_label(Label::primary(
+                            file_id,
+                            (location.byte_index() + 1)..(location.byte_index() + 2),
+                        ))
+                    }
+                    JsonParseErr::InvalidUnicodeEscapeSequence(span) => {
+                        let mut range = span.as_range();
+                        range = (range.start + 1)..(range.end + 1);
+                        diagnostic = diagnostic.with_label(Label::primary(file_id, range))
+                    }
+                    JsonParseErr::UnclosedString(location) => {
+                        diagnostic = diagnostic.with_label(Label::primary(
+                            file_id,
+                            (location.byte_index() + 1)..(location.byte_index() + 2),
+                        ))
+                    }
+                    JsonParseErr::DuplicateObjectKeys(span1, span2) => {
+                        let mut range1 = span1.as_range();
+                        range1 = (range1.start + 1)..(range1.end + 1);
+
+                        let mut range2 = span2.as_range();
+                        range2 = (range2.start + 1)..(range2.end + 1);
+
+                        diagnostic = diagnostic.with_labels(vec![
+                            Label::primary(file_id, range1),
+                            Label::secondary(file_id, range2),
+                        ])
+                    }
+                }
+
+                term::emit(&mut writer.lock(), &config, &files, &diagnostic).ok();
+            }
+        }
     }
 
     Ok(())
@@ -319,7 +386,7 @@ pub fn read_buf_to_string<T: Read>(mut reader: BufReader<T>) -> Result<String, E
 pub(crate) fn format_colored(
     json: &str,
     options: Option<FormatOptions<'_>>,
-) -> (String, Vec<Box<dyn Error>>) {
+) -> (String, Vec<JsonParseErr>) {
     let mut result = String::new();
     let tokenizer = JsonTokenizer::new(json);
     let mut errs = Vec::new();
@@ -534,9 +601,7 @@ pub(crate) fn format_colored(
     (
         result,
         if !errs.is_empty() {
-            errs.into_iter()
-                .map(|err| Box::new(err) as Box<dyn Error>)
-                .collect()
+            errs
         } else {
             Vec::with_capacity(0)
         },
@@ -647,7 +712,9 @@ fn to_string_colorized(
                     .expect("BUG: key to be in the object")
                     .0;
 
-                buf.extend_from_slice(format!("{}", format!("\"{}\"", key.sanitized()).cyan()).as_bytes());
+                buf.extend_from_slice(
+                    format!("{}", format!("\"{}\"", key.sanitized()).cyan()).as_bytes(),
+                );
 
                 buf.push(b':');
                 if pretty {
