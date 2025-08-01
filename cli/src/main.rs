@@ -647,7 +647,7 @@ fn to_string_colorized(
                     .expect("BUG: key to be in the object")
                     .0;
 
-                buf.extend_from_slice(format!("{}", key.sanitized().cyan()).as_bytes());
+                buf.extend_from_slice(format!("{}", format!("\"{}\"", key.sanitized()).cyan()).as_bytes());
 
                 buf.push(b':');
                 if pretty {
