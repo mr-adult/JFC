@@ -355,6 +355,41 @@ impl<'json> JsonTokenizer<'json> {
                                 end: before_comma,
                             };
                         }
+                        ':' => {
+                            // Found object end. Resynchronize
+                            if !self
+                                .states
+                                .iter()
+                                .rev()
+                                .any(|state| *state == JsonParseState::KeyValuePairColon)
+                            {
+                                // consume the character, but we didn't have any arrays
+                                // so we need to keep panicking.
+                                self.next_char();
+                                continue;
+                            } else {
+                                while let Some(state) = self.states.pop() {
+                                    if let JsonParseState::KeyValuePairColon = state {
+                                        break;
+                                    }
+                                }
+
+                                let colon_start = self.peek_position();
+                                self.next_char();
+                                self.lookahead = Some(JsonToken {
+                                    span: Span {
+                                        start: colon_start.clone(),
+                                        end: self.peek_position(),
+                                    },
+                                    kind: JsonTokenKind::ObjectEnd,
+                                });
+
+                                return Span {
+                                    start,
+                                    end: colon_start,
+                                };
+                            }
+                        }
                         _ => {
                             self.next_char();
                             continue;

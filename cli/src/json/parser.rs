@@ -451,6 +451,14 @@ impl<'json> JsonParser<'json> {
                             }
                         }
                     }
+                    JsonTokenKind::Colon => {
+                        if !self.states.iter().any(|state| {
+                            matches!(state, JsonParseState::KeyValuePairColon)
+                        }) {
+                            continue;
+                        }
+                        break;
+                    }
                     JsonTokenKind::Null => {
                         self.values_being_built.push(ValueInProgress::Null);
                         self.unwind_value_stack_once();
