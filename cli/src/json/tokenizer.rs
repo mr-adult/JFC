@@ -381,7 +381,7 @@ impl<'json> JsonTokenizer<'json> {
                                         start: colon_start.clone(),
                                         end: self.peek_position(),
                                     },
-                                    kind: JsonTokenKind::ObjectEnd,
+                                    kind: JsonTokenKind::Colon,
                                 });
 
                                 return Span {

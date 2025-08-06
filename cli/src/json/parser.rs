@@ -452,10 +452,23 @@ impl<'json> JsonParser<'json> {
                         }
                     }
                     JsonTokenKind::Colon => {
-                        if !self.states.iter().any(|state| {
-                            matches!(state, JsonParseState::KeyValuePairColon)
-                        }) {
+                        if !self
+                            .states
+                            .iter()
+                            .any(|state| matches!(state, JsonParseState::KeyValuePairColon))
+                        {
                             continue;
+                        }
+
+                        while let Some(state) = self.states.pop() {
+                            match state {
+                                JsonParseState::KeyValuePairColon => {
+                                    self.states.push(JsonParseState::KeyValuePairColon);
+                                    self.lookahead = Some(token);
+                                    break
+                                },
+                                _ => {}
+                            }
                         }
                         break;
                     }
@@ -490,7 +503,6 @@ impl<'json> JsonParser<'json> {
                         self.unwind_value_stack_once();
                         break;
                     }
-                    JsonTokenKind::Colon => {}
                 },
             }
         }
