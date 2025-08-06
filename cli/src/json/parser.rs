@@ -1,7 +1,5 @@
 use std::{borrow::Cow, collections::HashMap, slice::Iter};
 
-use generic_tokenizer::Location;
-
 use super::{
     tokenizer::{JsonParseErr, JsonToken, JsonTokenKind, JsonTokenizer, Span},
     JsonParseState,
