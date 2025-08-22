@@ -1,11 +1,12 @@
 [package]
 name = "jfc"
-version = "0.1.11"
+version = "0.1.12"
 edition = "2021"
 license = "MIT"
 description = "A CLI tool for working with malformed JSON"
 repository = "https://github.com/mr-adult/JFC"
 documentation = "https://docs.rs/jfc/latest/jfc/"
+categories = ["command-line-utilities"]
 
 [profile.release]
 lto = true
